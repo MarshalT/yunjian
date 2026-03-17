@@ -1,0 +1,79 @@
+/* ===== Tailwind CSS 基础样式 ===== */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===== 全局基础重置 ===== */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* ===== @uiw/react-md-editor 深色模式适配 ===== */
+.wmde-markdown-var {
+  --color-canvas-default: transparent;
+}
+
+/* 编辑器占满父容器高度 */
+.w-md-editor {
+  height: 100% !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+.w-md-editor-content {
+  height: calc(100% - 29px) !important;
+}
+
+/* 深色模式下编辑器背景 */
+.dark .w-md-editor {
+  background-color: #111827 !important;
+  color: #f3f4f6 !important;
+}
+
+.dark .w-md-editor-toolbar {
+  background-color: #1f2937 !important;
+  border-color: #374151 !important;
+}
+
+.dark .w-md-editor-toolbar ul > li > button {
+  color: #9ca3af !important;
+}
+
+.dark .w-md-editor-toolbar ul > li > button:hover {
+  background-color: #374151 !important;
+  color: #f3f4f6 !important;
+}
+
+/* ===== 滚动条美化 ===== */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: #d1d5db;
+  border-radius: 3px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background-color: #4b5563;
+}
+
+/* ===== 笔记内容预览区 Markdown 样式 ===== */
+.wmde-markdown {
+  font-size: 15px;
+  line-height: 1.7;
+}
