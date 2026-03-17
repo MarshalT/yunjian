@@ -1,0 +1,82 @@
+import type { WalletNote } from '../types'
+
+/** 本地存储 key（按钱包地址隔离） */
+const notesKey = (address: string) =>
+  `yunjian_wallet_notes_${address.toLowerCase()}`
+
+export function loadWalletNotes(address: string): WalletNote[] {
+  try {
+    const raw = localStorage.getItem(notesKey(address))
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+function persist(address: string, notes: WalletNote[]) {
+  localStorage.setItem(notesKey(address), JSON.stringify(notes))
+}
+
+/** 新建或更新笔记（自动标记为 pending） */
+export function upsertWalletNote(
+  address: string,
+  patch: Partial<WalletNote> & { id: string },
+): WalletNote[] {
+  const notes = loadWalletNotes(address)
+  const now   = new Date().toISOString()
+  const idx   = notes.findIndex(n => n.id === patch.id)
+
+  if (idx >= 0) {
+    notes[idx] = { ...notes[idx], ...patch, updated_at: now, pending: true }
+  } else {
+    notes.unshift({
+      address,
+      title:      '新建笔记',
+      content:    '',
+      created_at: now,
+      updated_at: now,
+      pending:    true,
+      ...patch,
+    } as WalletNote)
+  }
+  persist(address, notes)
+  return loadWalletNotes(address)
+}
+
+/** 删除笔记（仅本地） */
+export function removeWalletNote(address: string, id: string): WalletNote[] {
+  const notes = loadWalletNotes(address).filter(n => n.id !== id)
+  persist(address, notes)
+  return notes
+}
+
+/** 上传成功后标记笔记为已同步 */
+export function markUploaded(address: string, ids: string[]) {
+  const set   = new Set(ids)
+  const notes = loadWalletNotes(address).map(n =>
+    set.has(n.id) ? { ...n, pending: false } : n,
+  )
+  persist(address, notes)
+  return notes
+}
+
+/** 从链上同步回来的笔记合并到本地（链上数据优先，但保留本地 pending） */
+export function mergeChainNotes(address: string, chainNotes: WalletNote[]): WalletNote[] {
+  const local = loadWalletNotes(address)
+  const localMap = new Map(local.map(n => [n.id, n]))
+
+  for (const cn of chainNotes) {
+    const ln = localMap.get(cn.id)
+    // 如果本地有 pending 修改，不覆盖；否则以链上为准
+    if (!ln || (!ln.pending && new Date(cn.updated_at) > new Date(ln.updated_at))) {
+      localMap.set(cn.id, cn)
+    }
+  }
+
+  // 补充本地有但链上没有的 pending 笔记
+  const merged = Array.from(localMap.values()).sort(
+    (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+  )
+  persist(address, merged)
+  return merged
+}
