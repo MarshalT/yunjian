@@ -2,6 +2,7 @@ import { Contract } from 'ethers'
 import type { Wallet } from 'ethers'
 import { getProvider, uuidToBytes32 } from './wallet'
 import type { WalletNote } from '../types'
+import { deriveEncryptionKey, encrypt, decrypt, isEncrypted } from './crypto'
 
 /**
  * 合约地址 —— 部署后填入
@@ -40,10 +41,11 @@ export async function uploadNotes(
 ): Promise<string> {
   if (!CONTRACT_ADDRESS) throw new Error('合约地址未配置，请在 .env 中设置 VITE_CONTRACT_ADDRESS')
 
+  const key       = await deriveEncryptionKey(wallet)
   const contract  = writeContract(wallet)
   const noteIds   = notes.map(n => uuidToBytes32(n.id))
-  const titles    = notes.map(n => n.title)
-  const contents  = notes.map(n => n.content)
+  const titles    = await Promise.all(notes.map(n => encrypt(key, n.title)))
+  const contents  = await Promise.all(notes.map(n => encrypt(key, n.content)))
 
   const tx = await contract.saveNotes(noteIds, titles, contents)
   await tx.wait() // 等待链上确认
@@ -53,27 +55,34 @@ export async function uploadNotes(
 /**
  * 从链上拉取当前地址的所有笔记
  */
-export async function fetchNotesFromChain(address: string): Promise<WalletNote[]> {
+export async function fetchNotesFromChain(address: string, wallet?: Wallet): Promise<WalletNote[]> {
   if (!CONTRACT_ADDRESS) throw new Error('合约地址未配置')
 
+  const key      = wallet ? await deriveEncryptionKey(wallet) : null
   const contract = readContract()
   const [notes, deletedFlags]: [
     Array<{ id: string; title: string; content: string; createdAt: bigint; updatedAt: bigint }>,
     boolean[]
   ] = await contract.getAllNotes(address)
 
-  return notes
-    .map((n, i) => ({
-      id:          fromBytes32ToUuid(n.id),
+  const decryptField = async (s: string) => {
+    if (key && isEncrypted(s)) return decrypt(key, s)
+    return s
+  }
+
+  const results = await Promise.all(
+    notes.map(async (n, i) => ({
+      id:         fromBytes32ToUuid(n.id),
       address,
-      title:       n.title,
-      content:     n.content,
-      created_at:  new Date(Number(n.createdAt) * 1000).toISOString(),
-      updated_at:  new Date(Number(n.updatedAt) * 1000).toISOString(),
-      pending:     false,
-      deleted:     deletedFlags[i],
+      title:      await decryptField(n.title),
+      content:    await decryptField(n.content),
+      created_at: new Date(Number(n.createdAt) * 1000).toISOString(),
+      updated_at: new Date(Number(n.updatedAt) * 1000).toISOString(),
+      pending:    false,
+      deleted:    deletedFlags[i],
     }))
-    .filter(n => !n.deleted)
+  )
+  return results.filter(n => !n.deleted)
 }
 
 /** bytes32 hex → UUID（uuidToBytes32 的逆向） */

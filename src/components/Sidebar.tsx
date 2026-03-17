@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Plus, Search, Trash2, LogOut, ArrowUpDown } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
+import { ask } from '@tauri-apps/plugin-dialog'
 import { toast } from 'sonner'
 import { Note, SortField, Theme } from '../types'
 import { useCreateNote, useDeleteNote } from '../lib/hooks'
@@ -46,7 +47,10 @@ export function Sidebar({
     e.stopPropagation()
     // confirm 对话框会抢走焦点，先抑制失焦隐藏
     await invoke('set_suppress_blur', { suppress: true })
-    const confirmed = window.confirm('确定删除这篇笔记吗？此操作不可恢复。')
+    const confirmed = await ask('确定删除这篇笔记吗？此操作不可恢复。', {
+      title: '删除笔记',
+      kind: 'warning',
+    })
     setTimeout(() => invoke('set_suppress_blur', { suppress: false }), 300)
     if (!confirmed) return
     await deleteNote.mutateAsync(id)

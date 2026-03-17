@@ -2,10 +2,12 @@ import { useState } from 'react'
 import { Plus, Search, Trash2, LogOut, Upload, RefreshCw, ArrowUpDown } from 'lucide-react'
 import { toast } from 'sonner'
 import { invoke } from '@tauri-apps/api/core'
+import { ask } from '@tauri-apps/plugin-dialog'
 import { WalletNote, SortField, Theme } from '../types'
 import { removeWalletNote, upsertWalletNote, markUploaded, mergeChainNotes } from '../lib/walletStore'
 import { walletFromPrivateKey } from '../lib/wallet'
 import { uploadNotes, fetchNotesFromChain } from '../lib/contract'
+import { clearEncryptionKey } from '../lib/crypto'
 import { ThemeToggle } from './ThemeToggle'
 
 interface WalletSidebarProps {
@@ -46,7 +48,10 @@ export function WalletSidebar({
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation()
     await invoke('set_suppress_blur', { suppress: true })
-    const ok = window.confirm('确定删除这篇笔记吗？此操作不可恢复。')
+    const ok = await ask('确定删除这篇笔记吗？此操作不可恢复。', {
+      title: '删除笔记',
+      kind: 'warning',
+    })
     setTimeout(() => invoke('set_suppress_blur', { suppress: false }), 300)
     if (!ok) return
     const updated = removeWalletNote(address, id)
@@ -60,7 +65,10 @@ export function WalletSidebar({
     if (pending.length === 0) { toast.info('没有待上传的笔记'); return }
 
     await invoke('set_suppress_blur', { suppress: true })
-    const ok = window.confirm(`即将将 ${pending.length} 篇笔记上传到 XLayer 链上，确认继续？`)
+    const ok = await ask(`即将将 ${pending.length} 篇笔记上传到 XLayer 链上，确认继续？`, {
+      title: '上传到链上',
+      kind: 'info',
+    })
     setTimeout(() => invoke('set_suppress_blur', { suppress: false }), 300)
     if (!ok) return
 
@@ -83,7 +91,8 @@ export function WalletSidebar({
   const handleSync = async () => {
     setSyncing(true)
     try {
-      const chainNotes = await fetchNotesFromChain(address)
+      const wallet     = walletFromPrivateKey(privateKey)
+      const chainNotes = await fetchNotesFromChain(address, wallet)
       const merged     = mergeChainNotes(address, chainNotes)
       onNotesChange(merged)
       toast.success(`同步完成，共 ${chainNotes.length} 篇链上笔记`)
@@ -96,6 +105,7 @@ export function WalletSidebar({
   }
 
   const handleLogout = () => {
+    clearEncryptionKey()
     import('../lib/wallet').then(({ clearWalletSession }) => clearWalletSession())
     window.location.reload()
   }
