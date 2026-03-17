@@ -64,16 +64,22 @@ export function markUploaded(address: string, ids: string[]) {
 export function mergeChainNotes(address: string, chainNotes: WalletNote[]): WalletNote[] {
   const local = loadWalletNotes(address)
   const localMap = new Map(local.map(n => [n.id, n]))
+  const chainIds = new Set(chainNotes.map(n => n.id))
 
   for (const cn of chainNotes) {
     const ln = localMap.get(cn.id)
-    // 如果本地有 pending 修改，不覆盖；否则以链上为准
     if (!ln || (!ln.pending && new Date(cn.updated_at) > new Date(ln.updated_at))) {
       localMap.set(cn.id, cn)
     }
   }
 
-  // 补充本地有但链上没有的 pending 笔记
+  // 链上已删除的笔记（本地非 pending）从本地移除
+  for (const [id, note] of localMap) {
+    if (!note.pending && !chainIds.has(id)) {
+      localMap.delete(id)
+    }
+  }
+
   const merged = Array.from(localMap.values()).sort(
     (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
   )

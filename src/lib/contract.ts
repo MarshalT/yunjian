@@ -85,7 +85,17 @@ export async function fetchNotesFromChain(address: string, wallet?: Wallet): Pro
   return results.filter(n => !n.deleted)
 }
 
-/** bytes32 hex → UUID（uuidToBytes32 的逆向） */
+/**
+ * 删除链上笔记
+ */
+export async function deleteNoteOnChain(wallet: Wallet, noteId: string): Promise<void> {
+  if (!CONTRACT_ADDRESS) throw new Error('合约地址未配置')
+  const contract = writeContract(wallet)
+  const tx = await contract.deleteNote(uuidToBytes32(noteId))
+  await tx.wait()
+}
+
+
 function fromBytes32ToUuid(hex: string): string {
   const clean = hex.replace(/^0x/, '').replace(/0+$/, '').padEnd(32, '0')
   return [

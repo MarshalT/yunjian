@@ -6,7 +6,7 @@ import { ask } from '@tauri-apps/plugin-dialog'
 import { WalletNote, SortField, Theme } from '../types'
 import { removeWalletNote, upsertWalletNote, markUploaded, mergeChainNotes } from '../lib/walletStore'
 import { walletFromPrivateKey } from '../lib/wallet'
-import { uploadNotes, fetchNotesFromChain } from '../lib/contract'
+import { uploadNotes, fetchNotesFromChain, deleteNoteOnChain } from '../lib/contract'
 import { clearEncryptionKey } from '../lib/crypto'
 import { ThemeToggle } from './ThemeToggle'
 
@@ -54,6 +54,20 @@ export function WalletSidebar({
     })
     setTimeout(() => invoke('set_suppress_blur', { suppress: false }), 300)
     if (!ok) return
+
+    const note = notes.find(n => n.id === id)
+    // 已上链的笔记需同步删除链上数据
+    if (note && !note.pending) {
+      try {
+        const wallet = walletFromPrivateKey(privateKey)
+        await deleteNoteOnChain(wallet, id)
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        toast.error(`链上删除失败: ${msg}`)
+        return
+      }
+    }
+
     const updated = removeWalletNote(address, id)
     onNotesChange(updated)
     if (selectedId === id) onNewNote(updated[0]?.id ?? '')
