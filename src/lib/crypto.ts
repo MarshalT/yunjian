@@ -16,7 +16,7 @@ export async function deriveEncryptionKey(wallet: Wallet): Promise<CryptoKey> {
   const signature = await wallet.signMessage('yunjian:encryption-key-v1')
   // SHA-256 哈希签名字节，得到 32 字节密钥材料
   const sigBytes  = getBytes(signature)
-  const keyBuffer = await crypto.subtle.digest('SHA-256', sigBytes)
+  const keyBuffer = await crypto.subtle.digest('SHA-256', sigBytes.buffer as ArrayBuffer)
 
   _cachedKey = await crypto.subtle.importKey(
     'raw',
