@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { Note, SortField, Theme } from '../types'
 import { useCreateNote, useDeleteNote } from '../lib/hooks'
 import { supabase } from '../lib/supabase'
+import { clearSupabaseEncryptionKey } from '../lib/supabaseCrypto'
 import { ThemeToggle } from './ThemeToggle'
 
 interface SidebarProps {
@@ -59,6 +60,8 @@ export function Sidebar({
 
   /** 退出登录 */
   const handleLogout = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) clearSupabaseEncryptionKey(user.id)
     await supabase.auth.signOut()
     toast.success('已退出登录')
   }

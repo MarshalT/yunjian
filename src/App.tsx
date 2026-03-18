@@ -4,6 +4,7 @@ import { Toaster } from 'sonner'
 import { Session } from '@supabase/supabase-js'
 import { supabase } from './lib/supabase'
 import { loadTheme, saveTheme } from './lib/store'
+import { clearSupabaseEncryptionKey } from './lib/supabaseCrypto'
 import { loadWalletSession } from './lib/wallet'
 import { LoginPage } from './pages/LoginPage'
 import { MainPage } from './pages/MainPage'
@@ -47,6 +48,7 @@ export default function App() {
     }
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) clearSupabaseEncryptionKey()
       setSession(session)
     })
 

@@ -2,6 +2,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { supabase } from './supabase'
 import { cacheNotes, loadCachedNotes, updateCachedNote, deleteCachedNote } from './store'
+import {
+  decryptMaybeEncryptedField,
+  encryptNoteFields,
+  getSupabaseEncryptionKey,
+  noteNeedsKey,
+} from './supabaseCrypto'
 import { Note, SortField, SortOrder } from '../types'
 
 // ===== 笔记列表查询 =====
@@ -27,7 +33,20 @@ export function useNotes(sortField: SortField = 'updated_at', sortOrder: SortOrd
 
       if (error) throw error
 
-      const notes = (data ?? []) as Note[]
+      const rows = (data ?? []) as Note[]
+      const key = await getSupabaseEncryptionKey(user.id)
+
+      if (!key && rows.some((n) => noteNeedsKey(n.title, n.content))) {
+        throw new Error('检测到已加密笔记，但当前会话未解锁。请退出后重新用密码登录。')
+      }
+
+      const notes: Note[] = await Promise.all(
+        rows.map(async (n) => ({
+          ...n,
+          title: await decryptMaybeEncryptedField(key, n.title),
+          content: await decryptMaybeEncryptedField(key, n.content),
+        })),
+      )
       // 同步写入本地缓存，下次离线可用
       cacheNotes(notes)
       return notes
@@ -51,19 +70,27 @@ export function useCreateNote() {
         data: { user },
       } = await supabase.auth.getUser()
       if (!user) throw new Error('未登录')
+      const key = await getSupabaseEncryptionKey(user.id)
+      if (!key) throw new Error('当前会话未解锁，无法加密保存。请退出后重新登录。')
+
+      const encrypted = await encryptNoteFields(key, note.title, note.content)
 
       const { data, error } = await supabase
         .from('notes')
         .insert({
           user_id: user.id,
-          title: note.title,
-          content: note.content,
+          title: encrypted.title,
+          content: encrypted.content,
         })
         .select()
         .single()
 
       if (error) throw error
-      return data as Note
+      return {
+        ...(data as Note),
+        title: note.title,
+        content: note.content,
+      }
     },
     onSuccess: (note) => {
       // 乐观更新：直接把新笔记插入缓存
@@ -84,11 +111,19 @@ export function useUpdateNote() {
 
   return useMutation({
     mutationFn: async ({ id, title, content }: { id: string; title: string; content: string }) => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (!user) throw new Error('未登录')
+      const key = await getSupabaseEncryptionKey(user.id)
+      if (!key) throw new Error('当前会话未解锁，无法加密保存。请退出后重新登录。')
+      const encrypted = await encryptNoteFields(key, title, content)
+
       const { data, error } = await supabase
         .from('notes')
         .update({
-          title,
-          content,
+          title: encrypted.title,
+          content: encrypted.content,
           updated_at: new Date().toISOString(),
         })
         .eq('id', id)
@@ -96,7 +131,11 @@ export function useUpdateNote() {
         .single()
 
       if (error) throw error
-      return data as Note
+      return {
+        ...(data as Note),
+        title,
+        content,
+      }
     },
     onSuccess: (note) => {
       updateCachedNote(note)

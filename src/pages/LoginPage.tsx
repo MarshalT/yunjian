@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { supabase } from '../lib/supabase'
+import { primeSupabaseEncryptionKey } from '../lib/supabaseCrypto'
 import {
   isValidPrivateKey, deriveAddress, normalizeKey,
   saveWalletSession, getLastWalletAddress,
@@ -79,12 +80,18 @@ function SupabaseForm() {
     setLoading(true)
     try {
       if (mode === 'login') {
-        const { error } = await supabase.auth.signInWithPassword({ email, password })
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) throw error
+        if (data.user) {
+          await primeSupabaseEncryptionKey(data.user.id, password)
+        }
         toast.success('登录成功，欢迎回来！')
       } else {
-        const { error } = await supabase.auth.signUp({ email, password })
+        const { data, error } = await supabase.auth.signUp({ email, password })
         if (error) throw error
+        if (data.user && data.session) {
+          await primeSupabaseEncryptionKey(data.user.id, password)
+        }
         toast.success('注册成功！请检查邮箱完成验证后登录。')
       }
     } catch (err: unknown) {
