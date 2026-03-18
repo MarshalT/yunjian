@@ -1,7 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
 import { FileText } from 'lucide-react'
-import { supabase } from '../lib/supabase'
 import { useNotes, useCreateNote } from '../lib/hooks'
 import { Sidebar } from '../components/Sidebar'
 import { NoteEditor } from '../components/NoteEditor'
@@ -10,13 +8,13 @@ import { SortField, Theme } from '../types'
 interface MainPageProps {
   theme: Theme
   toggleTheme: () => void
+  onLogout: () => void
 }
 
 /** 主页面：侧边栏 + 编辑器 */
-export function MainPage({ theme, toggleTheme }: MainPageProps) {
+export function MainPage({ theme, toggleTheme, onLogout }: MainPageProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [sortField, setSortField] = useState<SortField>('updated_at')
-  const queryClient = useQueryClient()
   const createNote = useCreateNote()
 
   const { data: notes = [], isLoading } = useNotes(sortField, 'desc')
@@ -45,25 +43,6 @@ export function MainPage({ theme, toggleTheme }: MainPageProps) {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [handleNewNote])
 
-  // Supabase Realtime 实时订阅：其他设备修改时本设备自动刷新
-  useEffect(() => {
-    const channel = supabase
-      .channel('notes-realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'notes' },
-        () => {
-          // 收到变更信号，让 TanStack Query 重新拉取最新数据
-          queryClient.invalidateQueries({ queryKey: ['notes'] })
-        },
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [queryClient])
-
   const selectedNote = notes.find((n) => n.id === selectedId)
 
   return (
@@ -79,6 +58,7 @@ export function MainPage({ theme, toggleTheme }: MainPageProps) {
         sortField={sortField}
         onSortChange={setSortField}
         isLoading={isLoading}
+        onLogout={onLogout}
       />
 
       {/* 编辑区 */}

@@ -1,58 +1,70 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { supabase } from './supabase'
-import { cacheNotes, loadCachedNotes, updateCachedNote, deleteCachedNote } from './store'
+import { createGithubNote, deleteGithubNote, listGithubNotes, updateGithubNote } from './github'
 import {
-  decryptMaybeEncryptedField,
-  encryptNoteFields,
-  getSupabaseEncryptionKey,
-  noteNeedsKey,
-} from './supabaseCrypto'
+  loadGithubDraftNotes,
+  loadGithubRemoteNotes,
+  removeGithubDraftNote,
+  removeGithubRemoteNote,
+  saveGithubRemoteNotes,
+  saveGithubDraftNotes,
+  upsertGithubDraftNote,
+  upsertGithubRemoteNote,
+} from './githubLocalStore'
 import { Note, SortField, SortOrder } from '../types'
+
+function sortNotes(notes: Note[], sortField: SortField, sortOrder: SortOrder): Note[] {
+  const list = [...notes]
+  list.sort((a, b) => {
+    if (sortField === 'title') {
+      const d = a.title.localeCompare(b.title, 'zh-Hans-CN')
+      return sortOrder === 'asc' ? d : -d
+    }
+    const d = new Date(a[sortField]).getTime() - new Date(b[sortField]).getTime()
+    return sortOrder === 'asc' ? d : -d
+  })
+  return list
+}
+
+function mergeRemoteWithDrafts(remote: Note[], drafts: Note[], sortField: SortField, sortOrder: SortOrder): Note[] {
+  const map = new Map<string, Note>()
+  remote.forEach((n) => map.set(n.id, { ...n, pending: false }))
+
+  for (const draft of drafts) {
+    map.set(draft.id, { ...draft, pending: true })
+  }
+
+  return sortNotes(Array.from(map.values()), sortField, sortOrder)
+}
 
 // ===== 笔记列表查询 =====
 
 /**
- * 获取当前用户的所有笔记
- * 在线时从 Supabase 拉取并写入缓存；离线时使用本地缓存作为占位数据
+ * 获取所有笔记
+ * 在线时从 GitHub 拉取并写入缓存；离线时使用本地缓存作为占位数据
  */
 export function useNotes(sortField: SortField = 'updated_at', sortOrder: SortOrder = 'desc') {
+  const placeholder = mergeRemoteWithDrafts(
+    loadGithubRemoteNotes(),
+    loadGithubDraftNotes(),
+    sortField,
+    sortOrder,
+  )
+
   return useQuery({
     queryKey: ['notes', sortField, sortOrder],
     queryFn: async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-      if (!user) throw new Error('未登录')
+      const remote = await listGithubNotes(sortField, sortOrder)
+      saveGithubRemoteNotes(remote)
 
-      const { data, error } = await supabase
-        .from('notes')
-        .select('*')
-        .eq('user_id', user.id)
-        .order(sortField, { ascending: sortOrder === 'asc' })
+      // 仅保留“还未上仓库”的草稿，已落库 id 直接剔除，防止列表与仓库数量漂移
+      const remoteIds = new Set(remote.map((n) => n.id))
+      const pendingDrafts = loadGithubDraftNotes().filter((d) => !remoteIds.has(d.id))
+      saveGithubDraftNotes(pendingDrafts)
 
-      if (error) throw error
-
-      const rows = (data ?? []) as Note[]
-      const key = await getSupabaseEncryptionKey(user.id)
-
-      if (!key && rows.some((n) => noteNeedsKey(n.title, n.content))) {
-        throw new Error('检测到已加密笔记，但当前会话未解锁。请退出后重新用密码登录。')
-      }
-
-      const notes: Note[] = await Promise.all(
-        rows.map(async (n) => ({
-          ...n,
-          title: await decryptMaybeEncryptedField(key, n.title),
-          content: await decryptMaybeEncryptedField(key, n.content),
-        })),
-      )
-      // 同步写入本地缓存，下次离线可用
-      cacheNotes(notes)
-      return notes
+      return mergeRemoteWithDrafts(remote, pendingDrafts, sortField, sortOrder)
     },
-    // 网络请求失败时返回本地缓存（离线支持）
-    placeholderData: loadCachedNotes(),
+    placeholderData: placeholder,
     retry: 1,
     staleTime: 30_000,
   })
@@ -66,36 +78,16 @@ export function useCreateNote() {
 
   return useMutation({
     mutationFn: async (note: { title: string; content: string }) => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-      if (!user) throw new Error('未登录')
-      const key = await getSupabaseEncryptionKey(user.id)
-      if (!key) throw new Error('当前会话未解锁，无法加密保存。请退出后重新登录。')
-
-      const encrypted = await encryptNoteFields(key, note.title, note.content)
-
-      const { data, error } = await supabase
-        .from('notes')
-        .insert({
-          user_id: user.id,
-          title: encrypted.title,
-          content: encrypted.content,
-        })
-        .select()
-        .single()
-
-      if (error) throw error
-      return {
-        ...(data as Note),
-        title: note.title,
-        content: note.content,
-      }
+      return createGithubNote(note)
     },
     onSuccess: (note) => {
-      // 乐观更新：直接把新笔记插入缓存
-      updateCachedNote(note)
-      queryClient.invalidateQueries({ queryKey: ['notes'] })
+      upsertGithubDraftNote(note)
+      queryClient.setQueriesData<Note[]>({ queryKey: ['notes'] }, (old) => {
+        if (!old) return [note]
+        const exists = old.some((n) => n.id === note.id)
+        if (exists) return old.map((n) => (n.id === note.id ? note : n))
+        return [note, ...old]
+      })
     },
     onError: (err: Error) => {
       toast.error(`创建失败: ${err.message}`)
@@ -111,34 +103,16 @@ export function useUpdateNote() {
 
   return useMutation({
     mutationFn: async ({ id, title, content }: { id: string; title: string; content: string }) => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-      if (!user) throw new Error('未登录')
-      const key = await getSupabaseEncryptionKey(user.id)
-      if (!key) throw new Error('当前会话未解锁，无法加密保存。请退出后重新登录。')
-      const encrypted = await encryptNoteFields(key, title, content)
-
-      const { data, error } = await supabase
-        .from('notes')
-        .update({
-          title: encrypted.title,
-          content: encrypted.content,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', id)
-        .select()
-        .single()
-
-      if (error) throw error
-      return {
-        ...(data as Note),
-        title,
-        content,
-      }
+      return updateGithubNote({ id, title, content })
     },
-    onSuccess: (note) => {
-      updateCachedNote(note)
+    onSuccess: (note, vars) => {
+      removeGithubDraftNote(vars.id)
+      upsertGithubRemoteNote(note)
+      queryClient.setQueriesData<Note[]>({ queryKey: ['notes'] }, (old) => {
+        if (!old) return [note]
+        const filtered = old.filter((n) => n.id !== vars.id)
+        return [note, ...filtered]
+      })
       queryClient.invalidateQueries({ queryKey: ['notes'] })
     },
     onError: (err: Error) => {
@@ -155,12 +129,16 @@ export function useDeleteNote() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from('notes').delete().eq('id', id)
-      if (error) throw error
-      deleteCachedNote(id)
+      await deleteGithubNote(id)
+      removeGithubDraftNote(id)
+      removeGithubRemoteNote(id)
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['notes'] })
+    onSuccess: (_data, id) => {
+      queryClient.setQueriesData<Note[]>({ queryKey: ['notes'] }, (old) => old?.filter((n) => n.id !== id))
+      // GitHub 删除后短时间内 API 可能返回旧索引，延迟刷新避免“回魂”
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['notes'] })
+      }, 1200)
       toast.success('笔记已删除')
     },
     onError: (err: Error) => {
@@ -168,3 +146,5 @@ export function useDeleteNote() {
     },
   })
 }
+
+export type { Note, SortField, SortOrder }

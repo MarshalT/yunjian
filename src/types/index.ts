@@ -8,6 +8,7 @@ export interface Note {
   content: string
   created_at: string
   updated_at: string
+  pending?: boolean // GitHub 模式：true = 本地草稿，尚未保存到仓库
 }
 
 /** 排序字段 */
@@ -31,4 +32,4 @@ export interface WalletNote {
 }
 
 /** 登录模式 */
-export type AuthMode = 'supabase' | 'wallet'
+export type AuthMode = 'github' | 'wallet'

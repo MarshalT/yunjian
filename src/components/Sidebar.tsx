@@ -5,8 +5,6 @@ import { ask } from '@tauri-apps/plugin-dialog'
 import { toast } from 'sonner'
 import { Note, SortField, Theme } from '../types'
 import { useCreateNote, useDeleteNote } from '../lib/hooks'
-import { supabase } from '../lib/supabase'
-import { clearSupabaseEncryptionKey } from '../lib/supabaseCrypto'
 import { ThemeToggle } from './ThemeToggle'
 
 interface SidebarProps {
@@ -19,6 +17,7 @@ interface SidebarProps {
   sortField: SortField
   onSortChange: (field: SortField) => void
   isLoading: boolean
+  onLogout: () => void
 }
 
 /** 侧边栏：笔记列表、搜索、排序、新建、登出 */
@@ -32,6 +31,7 @@ export function Sidebar({
   sortField,
   onSortChange,
   isLoading,
+  onLogout,
 }: SidebarProps) {
   const [search, setSearch] = useState('')
   const createNote = useCreateNote()
@@ -59,10 +59,8 @@ export function Sidebar({
   }
 
   /** 退出登录 */
-  const handleLogout = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (user) clearSupabaseEncryptionKey(user.id)
-    await supabase.auth.signOut()
+  const handleLogout = () => {
+    onLogout()
     toast.success('已退出登录')
   }
 
@@ -156,8 +154,21 @@ export function Sidebar({
             >
               <div className="flex-1 min-w-0 pr-1">
                 {/* 标题 */}
-                <div className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">
-                  {note.title || '无标题'}
+                <div className="flex items-center gap-1.5">
+                  {note.pending && (
+                    <span
+                      className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"
+                      title="本地草稿，尚未保存到仓库"
+                    />
+                  )}
+                  <div className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">
+                    {note.title || '无标题'}
+                  </div>
+                  {note.pending && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 shrink-0">
+                      草稿
+                    </span>
+                  )}
                 </div>
                 {/* 时间 + 内容预览 */}
                 <div className="text-xs text-gray-400 mt-0.5 flex items-center gap-1.5">

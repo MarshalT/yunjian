@@ -1,6 +1,8 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use std::time::{SystemTime, UNIX_EPOCH};
+use serde::{Deserialize, Serialize};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -18,6 +20,220 @@ type SuppressBlur = Arc<AtomicBool>;
 #[tauri::command]
 fn set_suppress_blur(state: tauri::State<SuppressBlur>, suppress: bool) {
     state.store(suppress, Ordering::SeqCst);
+}
+
+#[derive(Debug, Deserialize)]
+struct DeviceCodeResp {
+    device_code: String,
+    user_code: String,
+    verification_uri: String,
+    expires_in: u64,
+    interval: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct DeviceCodeOut {
+    device_code: String,
+    user_code: String,
+    verification_uri: String,
+    expires_in: u64,
+    interval: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct TokenResp {
+    access_token: Option<String>,
+    error: Option<String>,
+    error_description: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct TokenPollOut {
+    status: String,
+    access_token: Option<String>,
+    error: Option<String>,
+    error_description: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubUserResp {
+    login: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct RepoCreateResp {
+    name: String,
+    default_branch: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct RepoCreateOut {
+    login: String,
+    repo: String,
+    branch: String,
+}
+
+fn unix_suffix() -> String {
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    secs.to_string()
+}
+
+fn gh_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .build()
+        .expect("failed to build reqwest client")
+}
+
+#[tauri::command]
+async fn github_start_device_flow(client_id: String) -> Result<DeviceCodeOut, String> {
+    let client = gh_client();
+    let res = client
+        .post("https://github.com/login/device/code")
+        .header("Accept", "application/json")
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .form(&[("client_id", client_id.as_str()), ("scope", "repo read:user")])
+        .send()
+        .await
+        .map_err(|e| format!("GitHub 设备授权请求失败: {e}"))?;
+
+    if !res.status().is_success() {
+        let text = res.text().await.unwrap_or_default();
+        return Err(format!("GitHub 设备授权请求失败: {}", text));
+    }
+
+    let d = res
+        .json::<DeviceCodeResp>()
+        .await
+        .map_err(|e| format!("解析 GitHub 设备授权响应失败: {e}"))?;
+
+    Ok(DeviceCodeOut {
+        device_code: d.device_code,
+        user_code: d.user_code,
+        verification_uri: d.verification_uri,
+        expires_in: d.expires_in,
+        interval: d.interval,
+    })
+}
+
+#[tauri::command]
+async fn github_poll_device_token(client_id: String, device_code: String) -> Result<TokenPollOut, String> {
+    let client = gh_client();
+    let res = client
+        .post("https://github.com/login/oauth/access_token")
+        .header("Accept", "application/json")
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .form(&[
+            ("client_id", client_id.as_str()),
+            ("device_code", device_code.as_str()),
+            ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+        ])
+        .send()
+        .await
+        .map_err(|e| format!("轮询 GitHub Token 失败: {e}"))?;
+
+    if !res.status().is_success() {
+        let text = res.text().await.unwrap_or_default();
+        return Err(format!("轮询 GitHub Token 失败: {}", text));
+    }
+
+    let t = res
+        .json::<TokenResp>()
+        .await
+        .map_err(|e| format!("解析 GitHub Token 响应失败: {e}"))?;
+
+    let status = if t.access_token.is_some() {
+        "ok".to_string()
+    } else if let Some(e) = &t.error {
+        match e.as_str() {
+            "authorization_pending" => "pending".to_string(),
+            "slow_down" => "slow_down".to_string(),
+            "access_denied" => "denied".to_string(),
+            "expired_token" => "expired".to_string(),
+            _ => "error".to_string(),
+        }
+    } else {
+        "error".to_string()
+    };
+
+    Ok(TokenPollOut {
+        status,
+        access_token: t.access_token,
+        error: t.error,
+        error_description: t.error_description,
+    })
+}
+
+#[tauri::command]
+async fn github_create_repo_for_notes(access_token: String, repo_prefix: String) -> Result<RepoCreateOut, String> {
+    let client = gh_client();
+
+    let user_res = client
+        .get("https://api.github.com/user")
+        .header("Accept", "application/vnd.github+json")
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .header("User-Agent", "yunjian-desktop")
+        .send()
+        .await
+        .map_err(|e| format!("获取 GitHub 用户信息失败: {e}"))?;
+
+    if !user_res.status().is_success() {
+        let text = user_res.text().await.unwrap_or_default();
+        return Err(format!("获取 GitHub 用户信息失败: {}", text));
+    }
+
+    let user = user_res
+        .json::<GithubUserResp>()
+        .await
+        .map_err(|e| format!("解析 GitHub 用户信息失败: {e}"))?;
+
+    let base = format!("{}-{}", repo_prefix, unix_suffix());
+    let mut candidate = base.clone();
+
+    for i in 0..4 {
+        let payload = serde_json::json!({
+            "name": candidate,
+            "private": true,
+            "auto_init": true,
+            "description": "Yunjian notes storage repository"
+        });
+
+        let repo_res = client
+            .post("https://api.github.com/user/repos")
+            .header("Accept", "application/vnd.github+json")
+            .header("Authorization", format!("Bearer {}", access_token))
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .header("User-Agent", "yunjian-desktop")
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| format!("创建 GitHub 仓库失败: {e}"))?;
+
+        if repo_res.status().is_success() {
+            let repo = repo_res
+                .json::<RepoCreateResp>()
+                .await
+                .map_err(|e| format!("解析 GitHub 仓库响应失败: {e}"))?;
+
+            return Ok(RepoCreateOut {
+                login: user.login,
+                repo: repo.name,
+                branch: repo.default_branch.unwrap_or_else(|| "main".to_string()),
+            });
+        }
+
+        let text = repo_res.text().await.unwrap_or_default();
+        if text.contains("name already exists") && i < 3 {
+            candidate = format!("{}-{}", base, i + 1);
+            continue;
+        }
+        return Err(format!("创建 GitHub 仓库失败: {}", text));
+    }
+
+    Err("创建 GitHub 仓库失败：仓库名冲突过多".to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -151,7 +367,12 @@ pub fn run() {
                 _ => {}
             }
         })
-        .invoke_handler(tauri::generate_handler![set_suppress_blur])
+        .invoke_handler(tauri::generate_handler![
+            set_suppress_blur,
+            github_start_device_flow,
+            github_poll_device_token,
+            github_create_repo_for_notes
+        ])
         .run(tauri::generate_context!())
         .expect("运行云笺时发生错误");
 }
