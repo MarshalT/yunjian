@@ -4,6 +4,22 @@ import type { WalletNote } from '../types'
 const notesKey = (address: string) =>
   `Yunqian_wallet_notes_${address.toLowerCase()}`
 
+const gasKey = (address: string) =>
+  `Yunqian_gas_${address.toLowerCase()}`
+
+/** 累计记录 Gas 消耗（wei 字符串存储） */
+export function addGasUsed(address: string, weiAmount: bigint) {
+  const stored  = localStorage.getItem(gasKey(address))
+  const current = stored ? BigInt(stored) : 0n
+  localStorage.setItem(gasKey(address), (current + weiAmount).toString())
+}
+
+/** 读取累计 Gas 消耗（wei） */
+export function getGasUsed(address: string): bigint {
+  const stored = localStorage.getItem(gasKey(address))
+  return stored ? BigInt(stored) : 0n
+}
+
 export function loadWalletNotes(address: string): WalletNote[] {
   try {
     const raw = localStorage.getItem(notesKey(address))

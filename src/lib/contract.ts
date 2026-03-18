@@ -3,6 +3,7 @@ import type { Wallet } from 'ethers'
 import { getProvider, uuidToBytes32 } from './wallet'
 import type { WalletNote } from '../types'
 import { deriveEncryptionKey, encrypt, decrypt, isEncrypted } from './crypto'
+import { addGasUsed } from './walletStore'
 
 /**
  * 合约地址 —— 部署后填入
@@ -47,9 +48,10 @@ export async function uploadNotes(
   const titles    = await Promise.all(notes.map(n => encrypt(key, n.title)))
   const contents  = await Promise.all(notes.map(n => encrypt(key, n.content)))
 
-  const tx = await contract.saveNotes(noteIds, titles, contents)
-  await tx.wait() // 等待链上确认
-  return tx.hash as string
+  const tx      = await contract.saveNotes(noteIds, titles, contents)
+  const receipt = await tx.wait()
+  if (receipt) addGasUsed(wallet.address, BigInt(receipt.gasUsed) * BigInt(receipt.gasPrice))
+    return tx.hash
 }
 
 /**
@@ -66,8 +68,14 @@ export async function fetchNotesFromChain(address: string, wallet?: Wallet): Pro
   ] = await contract.getAllNotes(address)
 
   const decryptField = async (s: string) => {
-    if (key && isEncrypted(s)) return decrypt(key, s)
-    return s
+    if (!key || !isEncrypted(s)) return s
+    try {
+      return await decrypt(key, s)
+    } catch {
+      // 解密失败（如旧格式数据），原样返回
+      console.warn('[crypto] decrypt failed, returning raw:', s.slice(0, 20))
+      return s
+    }
   }
 
   const results = await Promise.all(
@@ -91,8 +99,9 @@ export async function fetchNotesFromChain(address: string, wallet?: Wallet): Pro
 export async function deleteNoteOnChain(wallet: Wallet, noteId: string): Promise<void> {
   if (!CONTRACT_ADDRESS) throw new Error('合约地址未配置')
   const contract = writeContract(wallet)
-  const tx = await contract.deleteNote(uuidToBytes32(noteId))
-  await tx.wait()
+  const tx      = await contract.deleteNote(uuidToBytes32(noteId))
+  const receipt = await tx.wait()
+  if (receipt) addGasUsed(wallet.address, BigInt(receipt.gasUsed) * BigInt(receipt.gasPrice))
 }
 
 

@@ -16,7 +16,8 @@ export async function deriveEncryptionKey(wallet: Wallet): Promise<CryptoKey> {
   const signature = await wallet.signMessage('Yunqian:encryption-key-v1')
   // SHA-256 哈希签名字节，得到 32 字节密钥材料
   const sigBytes  = getBytes(signature)
-  const keyBuffer = await crypto.subtle.digest('SHA-256', sigBytes.buffer as ArrayBuffer)
+  // 用 slice() 确保产生独立的 ArrayBuffer（精确 65 字节），避免 buffer 含多余数据
+  const keyBuffer = await crypto.subtle.digest('SHA-256', sigBytes.slice().buffer)
 
   _cachedKey = await crypto.subtle.importKey(
     'raw',
@@ -33,38 +34,40 @@ export function clearEncryptionKey() {
   _cachedKey = null
 }
 
+/** 加密数据前缀，用于与明文区分 */
+const ENC_PREFIX = 'yjenc:'
+
 /**
  * AES-256-GCM 加密
- * 输出格式（hex）：IV[12字节] + 密文[N字节]
- * 每次加密使用随机 IV，保证相同明文密文不同
+ * 输出格式：yjenc: + hex(IV[12字节] + 密文[N字节])
  */
 export async function encrypt(key: CryptoKey, plaintext: string): Promise<string> {
   const iv       = crypto.getRandomValues(new Uint8Array(12))
   const encoded  = new TextEncoder().encode(plaintext)
   const cipher   = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded)
 
-  // 拼接 IV + 密文
   const result = new Uint8Array(12 + cipher.byteLength)
   result.set(iv, 0)
   result.set(new Uint8Array(cipher), 12)
-  return toHex(result)
+  return ENC_PREFIX + toHex(result)
 }
 
 /**
  * AES-256-GCM 解密
- * 输入格式（hex）：IV[12字节] + 密文[N字节]
+ * 输入格式：yjenc: + hex(IV[12字节] + 密文[N字节])
  */
-export async function decrypt(key: CryptoKey, hexData: string): Promise<string> {
-  const data      = fromHex(hexData)
-  const iv        = data.slice(0, 12)
-  const ciphertext = data.slice(12)
-  const plain     = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext)
+export async function decrypt(key: CryptoKey, data: string): Promise<string> {
+  const hexData    = data.startsWith(ENC_PREFIX) ? data.slice(ENC_PREFIX.length) : data
+  const buf        = fromHex(hexData)
+  const iv         = buf.slice(0, 12)
+  const ciphertext = buf.slice(12)
+  const plain      = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext)
   return new TextDecoder().decode(plain)
 }
 
-/** 判断字符串是否为加密后的 hex 数据（最短：12字节IV + 16字节tag = 56字符） */
+/** 判断字符串是否为加密数据 */
 export function isEncrypted(s: string): boolean {
-  return /^[0-9a-f]{56,}$/i.test(s)
+  return s.startsWith(ENC_PREFIX)
 }
 
 // ── 辅助函数 ──

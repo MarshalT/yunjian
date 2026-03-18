@@ -1,4 +1,4 @@
-import { Wallet, JsonRpcProvider } from 'ethers'
+import { Wallet, JsonRpcProvider, formatEther } from 'ethers'
 
 /** XLayer 网络配置 */
 export const XLAYER_NETWORKS = {
@@ -39,7 +39,15 @@ export function normalizeKey(key: string): string {
   return key.startsWith('0x') ? key : `0x${key}`
 }
 
-/** 将 UUID 转为 bytes32（去掉横线后补零到 64 位 hex） */
+/** 获取 OKB 余额，返回格式化字符串（保留 4 位小数） */
+export async function getOKBBalance(address: string): Promise<string> {
+  const balance = await getProvider().getBalance(address)
+  const full = formatEther(balance)
+  const [int, dec = ''] = full.split('.')
+  return `${int}.${dec.slice(0, 4).padEnd(4, '0')}`
+}
+
+
 export function uuidToBytes32(uuid: string): `0x${string}` {
   const hex = uuid.replace(/-/g, '')
   return `0x${hex.padEnd(64, '0')}` as `0x${string}`

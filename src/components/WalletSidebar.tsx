@@ -1,11 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Plus, Search, Trash2, LogOut, Upload, RefreshCw, ArrowUpDown } from 'lucide-react'
 import { toast } from 'sonner'
 import { invoke } from '@tauri-apps/api/core'
 import { ask } from '@tauri-apps/plugin-dialog'
 import { WalletNote, SortField, Theme } from '../types'
-import { removeWalletNote, upsertWalletNote, markUploaded, mergeChainNotes } from '../lib/walletStore'
-import { walletFromPrivateKey } from '../lib/wallet'
+import { removeWalletNote, upsertWalletNote, markUploaded, mergeChainNotes, getGasUsed } from '../lib/walletStore'
+import { walletFromPrivateKey, getOKBBalance } from '../lib/wallet'
 import { uploadNotes, fetchNotesFromChain, deleteNoteOnChain } from '../lib/contract'
 import { clearEncryptionKey } from '../lib/crypto'
 import { ThemeToggle } from './ThemeToggle'
@@ -24,6 +24,29 @@ interface WalletSidebarProps {
   onSortChange:   (f: SortField) => void
 }
 
+/** 将 wei 格式化为可读 Gas 费用（≥0.0001 OKB 显示 OKB，否则显示 Gwei） */
+function formatGas(wei: bigint): string {
+  const okb = Number(wei) / 1e18
+  if (okb >= 0.0001) return `${okb.toFixed(6)} OKB`
+  const gwei = Number(wei) / 1e9
+  return `${gwei.toFixed(4)} Gwei`
+}
+
+/** 提取错误信息（兼容 ethers.js 错误对象） */
+function errMsg(err: unknown): string {
+  if (err == null) return '未知错误'
+  if (typeof err === 'object') {
+    const e = err as Record<string, unknown>
+    return (
+      (typeof e.shortMessage === 'string' && e.shortMessage) ||
+      (typeof e.reason      === 'string' && e.reason) ||
+      (typeof e.message     === 'string' && e.message) ||
+      String(err)
+    )
+  }
+  return String(err)
+}
+
 /** 侧边栏（钱包模式）：支持本地 CRUD + 批量上链 + 从链同步 */
 export function WalletSidebar({
   notes, address, privateKey, selectedId,
@@ -33,6 +56,15 @@ export function WalletSidebar({
   const [search,    setSearch]    = useState('')
   const [uploading, setUploading] = useState(false)
   const [syncing,   setSyncing]   = useState(false)
+  const [okbBalance, setOkbBalance] = useState<string | null>(null)
+  const [gasUsed,    setGasUsed]    = useState<bigint>(0n)
+
+  // 加载余额和 Gas
+  const refreshStats = () => {
+    getOKBBalance(address).then(setOkbBalance).catch(() => {})
+    setGasUsed(getGasUsed(address))
+  }
+  useEffect(() => { refreshStats() }, [address])
 
   const pendingCount = notes.filter(n => n.pending).length
 
@@ -61,9 +93,9 @@ export function WalletSidebar({
       try {
         const wallet = walletFromPrivateKey(privateKey)
         await deleteNoteOnChain(wallet, id)
+        refreshStats()
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
-        toast.error(`链上删除失败: ${msg}`)
+        toast.error(`链上删除失败: ${errMsg(err)}`)
         return
       }
     }
@@ -93,9 +125,9 @@ export function WalletSidebar({
       const updated = markUploaded(address, pending.map(n => n.id))
       onNotesChange(updated)
       toast.success(`上传成功！交易: ${txHash.slice(0, 10)}...`)
+      refreshStats()
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`上传失败: ${msg}`)
+      toast.error(`上传失败: ${errMsg(err)}`)
     } finally {
       setUploading(false)
     }
@@ -111,8 +143,7 @@ export function WalletSidebar({
       onNotesChange(merged)
       toast.success(`同步完成，共 ${chainNotes.length} 篇链上笔记`)
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`同步失败: ${msg}`)
+      toast.error(`同步失败: ${errMsg(err)}`)
     } finally {
       setSyncing(false)
     }
@@ -151,6 +182,16 @@ export function WalletSidebar({
           <p className="text-[10px] text-gray-400 truncate w-44" title={address}>
             {address.slice(0, 6)}...{address.slice(-4)}
           </p>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className="text-[10px] text-emerald-500 font-medium">
+              {okbBalance !== null ? `${okbBalance} OKB` : '…'}
+            </span>
+            {gasUsed > 0n && (
+              <span className="text-[10px] text-gray-400" title="累计消耗 Gas">
+                Gas: {formatGas(gasUsed)}
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-0.5">
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
