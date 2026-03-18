@@ -57,7 +57,7 @@ export function WalletSidebar({
   const [uploading, setUploading] = useState(false)
   const [syncing,   setSyncing]   = useState(false)
   const [okbBalance, setOkbBalance] = useState<string | null>(null)
-  const [gasUsed,    setGasUsed]    = useState<bigint>(0n)
+  const [gasUsed,    setGasUsed]    = useState<bigint>(BigInt(0))
 
   // 加载余额和 Gas
   const refreshStats = () => {
@@ -186,7 +186,7 @@ export function WalletSidebar({
             <span className="text-[10px] text-emerald-500 font-medium">
               {okbBalance !== null ? `${okbBalance} OKB` : '…'}
             </span>
-            {gasUsed > 0n && (
+            {gasUsed >BigInt(0) && (
               <span className="text-[10px] text-gray-400" title="累计消耗 Gas">
                 Gas: {formatGas(gasUsed)}
               </span>

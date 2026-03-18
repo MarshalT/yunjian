@@ -51,7 +51,7 @@ export async function uploadNotes(
   const tx      = await contract.saveNotes(noteIds, titles, contents)
   const receipt = await tx.wait()
   if (receipt) addGasUsed(wallet.address, BigInt(receipt.gasUsed) * BigInt(receipt.gasPrice))
-    return tx.hash
+  return tx.hash as string
 }
 
 /**

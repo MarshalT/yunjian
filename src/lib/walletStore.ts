@@ -10,14 +10,14 @@ const gasKey = (address: string) =>
 /** 累计记录 Gas 消耗（wei 字符串存储） */
 export function addGasUsed(address: string, weiAmount: bigint) {
   const stored  = localStorage.getItem(gasKey(address))
-  const current = stored ? BigInt(stored) : 0n
+  const current = stored ? BigInt(stored) : BigInt(0)
   localStorage.setItem(gasKey(address), (current + weiAmount).toString())
 }
 
 /** 读取累计 Gas 消耗（wei） */
 export function getGasUsed(address: string): bigint {
   const stored = localStorage.getItem(gasKey(address))
-  return stored ? BigInt(stored) : 0n
+  return stored ? BigInt(stored) : BigInt(0)
 }
 
 export function loadWalletNotes(address: string): WalletNote[] {
