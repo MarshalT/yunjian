@@ -13,7 +13,7 @@ export async function deriveEncryptionKey(wallet: Wallet): Promise<CryptoKey> {
   if (_cachedKey) return _cachedKey
 
   // 对固定消息签名，得到 65 字节确定性签名（ECDSA secp256k1）
-  const signature = await wallet.signMessage('yunjian:encryption-key-v1')
+  const signature = await wallet.signMessage('Yunqian:encryption-key-v1')
   // SHA-256 哈希签名字节，得到 32 字节密钥材料
   const sigBytes  = getBytes(signature)
   const keyBuffer = await crypto.subtle.digest('SHA-256', sigBytes.buffer as ArrayBuffer)

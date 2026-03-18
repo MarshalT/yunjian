@@ -2,11 +2,11 @@
 pragma solidity ^0.8.20;
 
 /**
- * @title YunjianNotes
+ * @title YunqianNotes
  * @notice 云笺笔记合约，部署在 XLayer 网络
  * @dev 每个地址独立存储自己的笔记，支持批量保存
  */
-contract YunjianNotes {
+contract YunqianNotes {
     struct Note {
         bytes32 id;
         string  title;

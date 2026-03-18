@@ -26,14 +26,7 @@ export function LoginPage({ onWalletLogin }: LoginPageProps) {
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl shadow-black/5 p-8 border border-gray-100 dark:border-gray-700">
           {/* 登录方式切换 */}
           <div className="flex mb-6 bg-gray-100 dark:bg-gray-700 rounded-xl p-1">
-            <button onClick={() => setTab('supabase')}
-              className={`flex-1 py-1.5 text-sm font-medium rounded-lg transition-all ${
-                tab === 'supabase'
-                  ? 'bg-white dark:bg-gray-600 text-gray-800 dark:text-gray-100 shadow-sm'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'
-              }`}>
-              账号登录
-            </button>
+           
             <button onClick={() => setTab('wallet')}
               className={`flex-1 py-1.5 text-sm font-medium rounded-lg transition-all ${
                 tab === 'wallet'
@@ -41,6 +34,14 @@ export function LoginPage({ onWalletLogin }: LoginPageProps) {
                   : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'
               }`}>
               🔑 钱包登录
+            </button>
+            <button onClick={() => setTab('supabase')}
+              className={`flex-1 py-1.5 text-sm font-medium rounded-lg transition-all ${
+                tab === 'supabase'
+                  ? 'bg-white dark:bg-gray-600 text-gray-800 dark:text-gray-100 shadow-sm'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'
+              }`}>
+              账号登录
             </button>
           </div>
 

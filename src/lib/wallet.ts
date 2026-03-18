@@ -46,8 +46,8 @@ export function uuidToBytes32(uuid: string): `0x${string}` {
 }
 
 // ── Session 存储（私钥存 sessionStorage，地址存 localStorage）──
-const PK_KEY   = 'yunjian_wallet_pk'
-const ADDR_KEY = 'yunjian_wallet_address'
+const PK_KEY   = 'Yunqian_wallet_pk'
+const ADDR_KEY = 'Yunqian_wallet_address'
 
 export function saveWalletSession(privateKey: string, address: string) {
   sessionStorage.setItem(PK_KEY, privateKey)

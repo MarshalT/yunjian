@@ -1,8 +1,8 @@
 import { Note } from '../types'
 
 /** localStorage 缓存 key */
-const NOTES_CACHE_KEY = 'yunjian_notes_cache'
-const THEME_KEY = 'yunjian_theme'
+const NOTES_CACHE_KEY = 'Yunqian_notes_cache'
+const THEME_KEY = 'Yunqian_theme'
 
 // ===== 笔记缓存（离线支持） =====
 

@@ -2,7 +2,7 @@ import type { WalletNote } from '../types'
 
 /** 本地存储 key（按钱包地址隔离） */
 const notesKey = (address: string) =>
-  `yunjian_wallet_notes_${address.toLowerCase()}`
+  `Yunqian_wallet_notes_${address.toLowerCase()}`
 
 export function loadWalletNotes(address: string): WalletNote[] {
   try {
