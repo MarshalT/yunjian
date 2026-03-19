@@ -30,7 +30,9 @@ npm install
 
 ### 3.1 创建 OAuth App
 
-1. 打开 GitHub: `Settings -> Developer settings -> OAuth Apps -> New OAuth App`
+1. 打开 GitHub OAuth Apps 页面：
+   - Developer settings: https://github.com/settings/developers
+   - 直接创建页: https://github.com/settings/applications/new
 2. 建议填写：
    - Application name: `Yunjian Desktop`
    - Homepage URL: `http://localhost:1420`

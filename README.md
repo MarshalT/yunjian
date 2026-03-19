@@ -148,6 +148,10 @@ VITE_GITHUB_REPO_PREFIX=yunjian-notes
 VITE_CONTRACT_ADDRESS=0x...
 ```
 
+`VITE_GITHUB_CLIENT_ID` 获取地址：
+- Developer settings: https://github.com/settings/developers
+- OAuth App 创建页: https://github.com/settings/applications/new
+
 ## 常见问题
 
 ### 1) 登录后提示口令错误
