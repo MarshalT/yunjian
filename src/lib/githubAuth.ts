@@ -52,7 +52,7 @@ export async function startGithubDeviceFlowLogin(opts?: {
     verificationUri: device.verification_uri,
   })
 
-  window.open(device.verification_uri, '_blank', 'noopener,noreferrer')
+  await invoke('open_external_url', { url: device.verification_uri })
 
   const deadline = Date.now() + device.expires_in * 1000
   let intervalMs = Math.max(3, device.interval) * 1000

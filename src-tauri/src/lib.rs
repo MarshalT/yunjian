@@ -22,6 +22,34 @@ fn set_suppress_blur(state: tauri::State<SuppressBlur>, suppress: bool) {
     state.store(suppress, Ordering::SeqCst);
 }
 
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let mut cmd = {
+        let mut c = std::process::Command::new("open");
+        c.arg(url);
+        c
+    };
+
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        let mut c = std::process::Command::new("cmd");
+        c.args(["/C", "start", "", &url]);
+        c
+    };
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut cmd = {
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(url);
+        c
+    };
+
+    cmd.spawn()
+        .map_err(|e| format!("打开浏览器失败: {}", e))?;
+    Ok(())
+}
+
 #[derive(Debug, Deserialize)]
 struct DeviceCodeResp {
     device_code: String,
@@ -369,6 +397,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             set_suppress_blur,
+            open_external_url,
             github_start_device_flow,
             github_poll_device_token,
             github_create_repo_for_notes

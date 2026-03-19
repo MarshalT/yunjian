@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
 import { toast } from 'sonner'
+import { invoke } from '@tauri-apps/api/core'
 import { startGithubDeviceFlowLogin } from '../lib/githubAuth'
 import { GithubSession } from '../lib/githubSession'
 import {
@@ -138,7 +139,14 @@ function GithubForm({ onLogin }: { onLogin: (session: GithubSession) => void }) 
               <p className="text-[11px] text-gray-500 break-all">请在浏览器完成授权：{verifyUrl}</p>
               <button
                 type="button"
-                onClick={() => window.open(verifyUrl, '_blank', 'noopener,noreferrer')}
+                onClick={async () => {
+                  try {
+                    await invoke('open_external_url', { url: verifyUrl })
+                  } catch (err: unknown) {
+                    const msg = err instanceof Error ? err.message : '打开浏览器失败'
+                    toast.error(msg)
+                  }
+                }}
                 className="text-[11px] text-blue-600 hover:underline"
               >
                 重新打开授权页面
