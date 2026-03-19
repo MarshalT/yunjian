@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { invoke } from '@tauri-apps/api/core'
-import { startGithubDeviceFlowLogin } from '../lib/githubAuth'
+import { startGithubDeviceFlowLogin, verifyOrInitRepoPassphrase } from '../lib/githubAuth'
 import { setGithubPassphrase } from '../lib/githubCrypto'
 import { GithubSession } from '../lib/githubSession'
 import {
@@ -108,6 +108,7 @@ function GithubForm({ onLogin }: { onLogin: (session: GithubSession) => void }) 
           toast.info(`请在 GitHub 页面输入授权码：${userCode}`)
         },
       })
+      await verifyOrInitRepoPassphrase(session, passphrase.trim())
       setGithubPassphrase(passphrase.trim())
       toast.success(`登录成功，已初始化仓库：${session.repo}`)
       onLogin(session)

@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { createRepoCryptoConfig, RepoCryptoConfig, unlockRepoCryptoKey } from './githubCrypto'
 import { GithubSession } from './githubSession'
 
 interface DeviceCodeResponse {
@@ -36,6 +37,86 @@ function sleep(ms: number) {
 
 function repoPrefix(): string {
   return ((import.meta.env.VITE_GITHUB_REPO_PREFIX as string | undefined) ?? 'yunjian-notes').trim()
+}
+
+function encodeBase64Utf8(text: string): string {
+  const bytes = new TextEncoder().encode(text)
+  let binary = ''
+  bytes.forEach((b) => {
+    binary += String.fromCharCode(b)
+  })
+  return btoa(binary)
+}
+
+function decodeBase64Utf8(base64: string): string {
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return new TextDecoder().decode(bytes)
+}
+
+async function fetchRepoConfig(session: GithubSession): Promise<{ config: RepoCryptoConfig; sha: string } | null> {
+  const url = `https://api.github.com/repos/${session.login}/${session.repo}/contents/.yunjian/config.json?ref=${encodeURIComponent(session.branch)}`
+  const res = await fetch(url, {
+    cache: 'no-store',
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${session.accessToken}`,
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  })
+
+  if (res.status === 404) return null
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`读取加密配置失败: ${text || res.status}`)
+  }
+
+  const body = (await res.json()) as { content?: string; sha: string }
+  if (!body.content) throw new Error('读取加密配置失败: 配置内容为空')
+
+  return {
+    config: JSON.parse(decodeBase64Utf8(body.content.replace(/\n/g, ''))) as RepoCryptoConfig,
+    sha: body.sha,
+  }
+}
+
+async function putRepoConfig(session: GithubSession, config: RepoCryptoConfig, sha?: string): Promise<void> {
+  const url = `https://api.github.com/repos/${session.login}/${session.repo}/contents/.yunjian/config.json`
+  const payload = {
+    message: sha ? 'update encryption config' : 'init encryption config',
+    content: encodeBase64Utf8(JSON.stringify(config, null, 2)),
+    ...(sha ? { sha } : {}),
+    branch: session.branch,
+  }
+
+  const res = await fetch(url, {
+    method: 'PUT',
+    cache: 'no-store',
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${session.accessToken}`,
+      'X-GitHub-Api-Version': '2022-11-28',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
+
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`写入加密配置失败: ${text || res.status}`)
+  }
+}
+
+export async function verifyOrInitRepoPassphrase(session: GithubSession, passphrase: string): Promise<void> {
+  const existing = await fetchRepoConfig(session)
+  if (!existing) {
+    const created = await createRepoCryptoConfig(passphrase)
+    await putRepoConfig(session, created.config)
+    return
+  }
+
+  await unlockRepoCryptoKey(passphrase, existing.config)
 }
 
 export async function startGithubDeviceFlowLogin(opts?: {

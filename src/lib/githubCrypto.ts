@@ -21,6 +21,8 @@ export interface RepoCryptoConfig {
 export interface EncryptedNotePayload {
   enc: true
   version: number
+  created_at: string
+  updated_at: string
   iv: string
   payload: string
 }
@@ -138,6 +140,8 @@ export async function encryptNote(note: Note, key: CryptoKey): Promise<Encrypted
   return {
     enc: true,
     version: 1,
+    created_at: note.created_at,
+    updated_at: note.updated_at,
     iv: payload.iv,
     payload: payload.payload,
   }
