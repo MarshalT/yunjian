@@ -8,6 +8,7 @@ import { removeWalletNote, upsertWalletNote, markUploaded, mergeChainNotes, getG
 import { walletFromPrivateKey, getOKBBalance } from '../lib/wallet'
 import { uploadNotes, fetchNotesFromChain, deleteNoteOnChain } from '../lib/contract'
 import { clearEncryptionKey } from '../lib/crypto'
+import { PinToggle } from './PinToggle'
 import { ThemeToggle } from './ThemeToggle'
 
 interface WalletSidebarProps {
@@ -194,6 +195,7 @@ export function WalletSidebar({
           </div>
         </div>
         <div className="flex items-center gap-0.5">
+          <PinToggle />
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
           <button onClick={handleNew} title="新建 (Ctrl+N)"
             className="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 transition-colors">

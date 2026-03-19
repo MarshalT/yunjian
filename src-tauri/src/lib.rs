@@ -15,11 +15,19 @@ type LastHideTime = Arc<Mutex<Option<Instant>>>;
 
 /// 对话框打开期间设为 true，抑制失焦自动隐藏
 type SuppressBlur = Arc<AtomicBool>;
+/// 窗口钉住状态：true 时失去焦点不自动隐藏
+type PinnedWindow = Arc<AtomicBool>;
 
 /// 前端调用：对话框弹出前设 true，关闭后设 false
 #[tauri::command]
 fn set_suppress_blur(state: tauri::State<SuppressBlur>, suppress: bool) {
     state.store(suppress, Ordering::SeqCst);
+}
+
+/// 前端调用：设置窗口是否钉住（钉住时不因失焦而隐藏）
+#[tauri::command]
+fn set_window_pinned(state: tauri::State<PinnedWindow>, pinned: bool) {
+    state.store(pinned, Ordering::SeqCst);
 }
 
 #[tauri::command]
@@ -373,6 +381,8 @@ pub fn run() {
             app.manage(last_hide.clone());
             let suppress_blur: SuppressBlur = Arc::new(AtomicBool::new(false));
             app.manage(suppress_blur);
+            let pinned_window: PinnedWindow = Arc::new(AtomicBool::new(false));
+            app.manage(pinned_window);
 
             // ── 系统托盘右键菜单 ──
             let quit_item =
@@ -468,6 +478,11 @@ pub fn run() {
                     if suppress.load(Ordering::SeqCst) {
                         return;
                     }
+                    // 钉住开启时不因失焦隐藏
+                    let pinned = window.app_handle().state::<PinnedWindow>();
+                    if pinned.load(Ordering::SeqCst) {
+                        return;
+                    }
 
                     let state = window.app_handle().state::<LastHideTime>();
                     *state.lock().unwrap() = Some(Instant::now());
@@ -493,6 +508,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             set_suppress_blur,
+            set_window_pinned,
             open_external_url,
             github_start_device_flow,
             github_poll_device_token,

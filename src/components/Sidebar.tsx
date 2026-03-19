@@ -5,6 +5,7 @@ import { ask } from '@tauri-apps/plugin-dialog'
 import { toast } from 'sonner'
 import { Note, SortField, Theme } from '../types'
 import { useCreateNote, useDeleteNote } from '../lib/hooks'
+import { PinToggle } from './PinToggle'
 import { ThemeToggle } from './ThemeToggle'
 
 interface SidebarProps {
@@ -93,6 +94,7 @@ export function Sidebar({
           ✍️ 云笺
         </h1>
         <div className="flex items-center gap-0.5">
+          <PinToggle />
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
           <button
             onClick={handleNewNote}
