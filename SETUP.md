@@ -1,110 +1,168 @@
-# 云笺 - 跨平台 Markdown 云端笔记
+# 云笺 GitHub 版安装与配置指南
 
-基于 **Tauri 2.x + React + TypeScript + Supabase** 构建的跨平台桌面笔记应用。
+本文档按“当前项目真实实现”说明从零启动。
 
-## 技术栈
+## 1. 环境要求
 
-| 层次 | 技术 |
-|------|------|
-| 桌面框架 | Tauri 2.x (Rust) |
-| 前端 | React 18 + TypeScript + Vite |
-| 样式 | Tailwind CSS |
-| Markdown | @uiw/react-md-editor（实时分屏预览） |
-| 数据存储 | Supabase（PostgreSQL + Auth + Realtime） |
-| 状态管理 | TanStack Query v5 |
-| 通知 | Sonner |
+- Node.js 18+
+- Rust stable（含 cargo）
+- Tauri 2.x 运行所需系统依赖
+  - macOS：Xcode Command Line Tools
+  - Windows：MSVC Build Tools + WebView2 Runtime
+  - Linux：GTK/WebKit2GTK（按 Tauri 官方文档）
 
-## 快速开始
-
-### 1. 环境准备
+安装 Rust：
 
 ```bash
-# 安装 Rust（必须）
-# https://www.rust-lang.org/tools/install
-
-# 安装 Node.js 18+
-# https://nodejs.org
-
-# 安装 pnpm
-npm install -g pnpm
-
-# Windows 额外安装 WebView2（Win10 通常已内置）
-# https://developer.microsoft.com/en-us/microsoft-edge/webview2/
+curl https://sh.rustup.rs -sSf | sh
 ```
 
-### 2. 配置 Supabase
+## 2. 获取代码并安装依赖
 
-1. 前往 [supabase.com](https://supabase.com) 创建新项目
-2. 在 **SQL Editor** 中执行 `supabase/schema.sql` 中的所有 SQL
-3. 在 **Table Editor → notes → Realtime** 中开启实时订阅
-4. 在 **Project Settings → API** 中复制 `Project URL` 和 `anon public` key
+```bash
+cd /Users/tangjianhong/脚本/yunjian-github
+npm install
+```
 
-### 3. 配置环境变量
+## 3. 配置 GitHub OAuth App（必须）
+
+应用使用 GitHub Device Flow 登录，需要你自己的 OAuth App Client ID。
+
+### 3.1 创建 OAuth App
+
+1. 打开 GitHub: `Settings -> Developer settings -> OAuth Apps -> New OAuth App`
+2. 建议填写：
+   - Application name: `Yunjian Desktop`
+   - Homepage URL: `http://localhost:1420`
+   - Authorization callback URL: `http://localhost:1420/callback`
+3. 创建后复制 `Client ID`
+4. 在 OAuth App 设置中确认已启用 Device Flow（若有该开关）
+
+## 4. 配置环境变量
+
+复制并编辑 `.env`：
 
 ```bash
 cp .env.example .env
 ```
 
-编辑 `.env`：
+`.env` 示例：
 
 ```env
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key
+VITE_GITHUB_CLIENT_ID=your_github_oauth_app_client_id
+VITE_GITHUB_REPO_PREFIX=yunjian-notes
+VITE_CONTRACT_ADDRESS=0x0277D3A6DEa35ba6d9585E1AF155779736FFBe25
 ```
 
-### 4. 安装依赖
+字段说明：
+- `VITE_GITHUB_CLIENT_ID`: GitHub OAuth App 的 Client ID
+- `VITE_GITHUB_REPO_PREFIX`: 数据仓库名前缀
+- `VITE_CONTRACT_ADDRESS`: 钱包上链模式用到
+
+## 5. 启动开发环境
 
 ```bash
-pnpm install
+npm run tauri dev
 ```
 
-### 5. 开发运行
+## 6. 首次登录与仓库行为
+
+1. 选择“GitHub 登录”
+2. 输入加密口令（至少 8 位）
+3. 点击登录后会自动打开系统浏览器授权页
+4. 输入页面展示的授权码完成授权
+
+登录后仓库行为：
+- 先尝试复用固定仓库名：`<prefix>-<github_login>`
+- 若存在旧版本历史仓库，会优先复用
+- 若都不存在，首次自动创建
+
+这保证同一 GitHub 账号在多设备登录共享同一仓库。
+
+## 7. 数据写入规则（当前实现）
+
+- 新建笔记：只创建本地草稿（列表显示“草稿”）
+- 保存笔记：才会加密并上传到 GitHub
+- 删除笔记：删除远端文件并同步清理本地缓存
+
+## 8. 钱包模式配置与使用
+
+钱包模式不依赖 GitHub，可单独使用。
+
+### 8.1 必要配置
+
+`.env` 中需配置合约地址：
+
+```env
+VITE_CONTRACT_ADDRESS=0x0277D3A6DEa35ba6d9585E1AF155779736FFBe25
+```
+
+### 8.2 使用流程
+
+1. 在登录页切换到“钱包登录”
+2. 输入私钥并登录
+3. 本地创建/编辑笔记（会标记待上链）
+4. 点击“上链”批量写入链上
+5. 需要时点击“同步”从链上拉取
+
+### 8.3 安全与注意事项
+
+- 私钥只保存在会话中，应用关闭后自动失效
+- 不建议在不可信设备输入私钥
+- 删除已上链笔记会触发链上删除交易（会消耗 Gas）
+- 钱包模式和 GitHub 模式数据互不共享
+## 9. 加密机制说明
+
+- 算法：AES-256-GCM
+- KDF：PBKDF2-SHA256
+- 仓库配置文件：`.yunjian/config.json`
+- 笔记文件：`notes/<id>.json`（密文）
+- 口令仅存 sessionStorage，重启后需重新输入
+
+登录时即校验口令：
+- 如果仓库已有加密配置，口令错误会直接拒绝登录
+- 如果仓库还没配置，会用当前口令初始化
+
+## 10. 打包
 
 ```bash
-pnpm tauri dev
+npm run tauri build
 ```
 
-### 6. 打包构建
+产物目录：
+
+```text
+src-tauri/target/release/bundle/
+```
+
+## 11. 常见问题
+
+### Q1: 点登录后浏览器没打开
+
+已使用后端命令拉起系统浏览器。若仍未打开，点“重新打开授权页面”按钮。
+
+### Q2: 登录提示加密口令错误
+
+说明该仓库已绑定历史口令。请使用同一口令，或清理仓库后重新初始化。
+
+### Q3: 列表数量与仓库不一致
+
+列表 = 远端日志 + 本地草稿。带“草稿”标签的是尚未保存到仓库的本地项。
+
+### Q4: 删除后短时间又出现
+
+项目已做 `no-store` + 延迟刷新。若偶现，等待 1-2 秒自动同步后会消失。
+
+### Q5: 钱包模式看不到上链数据
+
+先确认：\n1) 合约地址是否正确；\n2) 当前私钥地址是否与上链账户一致；\n3) 网络与 RPC 是否可用。\n然后点击“同步”从链上拉取。
+## 12. 开发建议
+
+- 功能改动后先执行：
 
 ```bash
-# 当前平台打包
-pnpm tauri build
-
-# 产物位于 src-tauri/target/release/bundle/
-# Windows: .msi 安装包 + .exe
-# macOS:   .dmg + .app
-# Linux:   .deb + .AppImage
+npm run build
+cd src-tauri && cargo check
 ```
 
-## 功能
-
-- **用户认证**：邮箱密码注册登录（Supabase Auth）
-- **Markdown 编辑**：分屏实时预览，支持 GFM 语法
-- **自动保存**：编辑后 3 秒自动同步至云端
-- **实时同步**：Supabase Realtime，多设备实时刷新
-- **离线支持**：断网时读取本地缓存，联网后自动同步
-- **导出**：导出单篇笔记为 `.md` 文件
-- **深色模式**：跟随系统或手动切换
-- **笔记搜索**：标题 + 内容全文搜索
-- **排序**：按更新时间 / 创建时间 / 标题排序
-
-## 快捷键
-
-| 快捷键 | 功能 |
-|--------|------|
-| `Ctrl+S` | 立即保存当前笔记 |
-| `Ctrl+N` | 新建笔记 |
-
-## 常见问题
-
-**Q: Tauri 开发时报 `WebView2` 错误（Windows）**
-> 安装 [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
-
-**Q: 导出文件无权限**
-> 检查 `src-tauri/capabilities/default.json` 中的 `fs:allow-write-text-file` 路径范围
-
-**Q: Supabase 连接失败**
-> 确认 `.env` 文件存在且 URL/KEY 填写正确；不要使用 `service_role` key，应使用 `anon` key
-
-**Q: 注册后无法登录**
-> Supabase 默认需要邮箱验证，检查邮箱收件箱，或在 Supabase 控制台 **Auth → Settings** 中关闭邮箱验证
+- 涉及 Tauri Rust 命令改动时，必须重启 `tauri dev`。

@@ -1,75 +1,175 @@
-你现在是一位资深的全栈工程师 + Tauri 框架专家，同时非常熟悉 Supabase 的使用。请为我完整生成一个跨平台（Windows、macOS、Linux）Markdown 笔记桌面应用的完整项目代码和搭建指南，使用最新稳定版的 Tauri 2.x 框架，前端使用 React + TypeScript + Tailwind CSS，后端使用 Rust（Tauri 默认），数据全部存储在 Supabase 云端数据库。
+# 云笺 GitHub 版
 
-核心需求如下：
+云笺是一个基于 Tauri 2.x 的跨平台 Markdown 笔记应用（Windows/macOS/Linux）。
 
-1. 项目名称：建议叫 "MarkDownSync" 或 "云笺"（你可以自己起一个好听的中文/英文名）
+当前版本采用 **GitHub 仓库作为云端存储**，并在客户端做 **端到端加密（E2EE）**：
+- 登录后自动创建或复用同一仓库（多设备共享）
+- 每篇笔记一个文件：`notes/<id>.json`
+- 笔记内容密文保存到 GitHub，客户端解密后展示
 
-2. 主要功能：
-   - 用户注册/登录（Supabase Auth，支持邮箱密码登录 + 可选 GitHub/Google 第三方登录）
-   - 创建、编辑、删除、搜索笔记
-   - Markdown 编辑器（支持实时预览，最好用 monaco-editor 或 @uiw/react-md-editor 这种好用的组件）
-   - 笔记列表（侧边栏），支持按标题搜索
-   - 自动保存（编辑后 3–5 秒自动同步到 Supabase）
-   - 深色/浅色模式切换（跟随系统或手动）
-   - 离线支持（使用 localStorage 或 tauri-plugin-store 做简单缓存，重新联网时同步）
-   - 导出单篇笔记为 .md 文件（使用 Tauri 的文件系统 API）
-   - 基本的笔记排序（创建时间/更新时间/标题）
+## 功能概览
 
-3. 技术栈强制要求：
-   - Tauri 2.x（必须使用新版插件系统）
-   - 前端：React 18 + TypeScript + Vite + Tailwind CSS + shadcn/ui 或 Radix UI（推荐现代组件库）
-   - Markdown 处理：react-markdown + remark-gfm + rehype-raw + rehype-highlight 等插件
-   - Supabase：使用 @supabase/supabase-js 最新版
-   - 数据库表结构（在 Supabase 中创建）：
-     - 表名：notes
-     - 字段：id (uuid primary key), user_id (uuid references auth.users), title (text), content (text), created_at (timestamptz), updated_at (timestamptz)
-   - 开启 Supabase Row Level Security (RLS)，确保用户只能读写自己的笔记（policy 示例要给出）
-   - 实时同步：尽量使用 Supabase Realtime 订阅（当笔记变更时，其他设备能看到更新）
+- GitHub OAuth Device Flow 登录
+- 自动复用同一个数据仓库（首次创建，后续复用）
+- 端到端加密（AES-256-GCM + PBKDF2）
+- Markdown 实时编辑与预览（`@uiw/react-md-editor`）
+- 自动保存（编辑后 3 秒）
+- 快捷键：`Ctrl/Cmd+S` 保存，`Ctrl/Cmd+N` 新建
+- 草稿机制：新建仅本地草稿，保存时才写入仓库
+- 草稿可视化标识（黄点 + 草稿标签）
+- 导出为 `.md`
+- 主题切换（浅色/深色）
+- 钱包模式（本地优先 + 手动上链，支持链上同步与链上删除）
 
-4. 项目结构建议（请按照这个结构输出代码）：
-   src-tauri/
-   ├── src/
-   │   └── main.rs
-   ├── tauri.conf.json
-   ├── capabilities/
-   └── Cargo.toml
-   src/                    # 前端
-   ├── components/
-   ├── pages/
-   ├── lib/
-   │   └── supabase.ts     # supabase 客户端初始化 + hooks
-   ├── App.tsx
-   ├── main.tsx
-   └── index.css
-   README.md               # 中文说明文档（必须包含：安装依赖、配置 Supabase、运行、打包步骤）
+## 模式对比
 
-5. 必须提供的完整内容：
-   - Supabase 项目创建 + 表结构 SQL + RLS 策略 SQL（中文注释）
-   - .env.example 文件内容（SUPABASE_URL 和 SUPABASE_ANON_KEY）
-   - 前端如何处理登录状态、登出、保护路由
-   - Tauri 如何安全地调用文件系统（保存导出 md 文件）
-   - 完整的 package.json / pnpm-lock.yaml（或 yarn）依赖列表
-   - 推荐的 VS Code 插件和常用命令
-   - 打包命令（tauri build）各平台的说明
+| 维度 | GitHub 模式 | 钱包模式 |
+|---|---|---|
+| 登录方式 | GitHub OAuth Device Flow | 私钥登录 |
+| 云端存储 | GitHub 私有仓库（`notes/*.json`） | 链上合约存储 |
+| 数据写入时机 | 新建本地草稿，保存时上传 | 新建/编辑本地，手动点击“上链” |
+| 加密方式 | 口令派生密钥（PBKDF2 + AES-GCM） | 钱包签名派生密钥（AES-GCM） |
+| 多设备同步 | 同 GitHub 账号 + 同口令自动共享 | 同钱包地址 + 同私钥同步 |
+| 实时性 | 保存后即远端可见 | 需手动上链/同步 |
+| 成本 | 无链上 Gas 成本 | 上链与链上删除消耗 Gas |
+| 安全侧重点 | 口令保密、仓库权限控制 | 私钥安全与签名环境安全 |
+| 适用场景 | 日常跨设备笔记协作 | 去中心化备份、链上可验证存证 |
 
-6. 代码风格要求：
-   - 所有代码必须带中文注释（关键部分详细说明）
-   - 使用现代 hooks（如 useQuery/useMutation 如果用 tanstack-query 更好）
-   - 错误处理要友好（toast 提示，使用 sonner 或 react-hot-toast）
-   - UI 要简洁现代，美观（参考 Notion / Obsidian 的感觉）
+## 技术栈
 
-7. 额外加分项（如果能实现更好）：
-   - 使用 tanstack/query + supabase realtime 实现乐观更新
-   - 支持笔记文件夹（简单层级）
-   - 快捷键（Ctrl+S 保存、Ctrl+N 新建等）
+- 桌面框架：Tauri 2.x（Rust）
+- 前端：React 18 + TypeScript + Vite
+- 样式：Tailwind CSS
+- 数据层：TanStack Query
+- 通知：Sonner
+- Markdown：@uiw/react-md-editor
+- 云存储：GitHub REST API（仓库文件）
 
-请按照以下顺序完整输出：
-1. 项目中文介绍 + 技术亮点
-2. Supabase 后台配置步骤（SQL + RLS）
-3. 项目完整目录树
-4. 关键配置文件（tauri.conf.json、package.json、.env.example）
-5. 核心代码文件（逐个给出，带路径）
-6. 安装 & 运行 & 打包完整教程（中文）
-7. 可能遇到的坑 + 解决方案
+## 存储与加密设计
 
-开始吧！直接输出完整可运行的项目内容，不要省略代码。
+### 1. GitHub 仓库策略
+
+- 仓库创建/复用由 Tauri 后端命令处理：
+  - 首先尝试固定仓库名：`<repo_prefix>-<github_login>`
+  - 若存在历史旧仓库（旧规则）则优先复用
+  - 若都不存在才创建新仓库
+- 因此同一 GitHub 账号在多设备登录会共享同一仓库
+
+### 2. 文件组织
+
+- 加密配置：`.yunjian/config.json`
+- 笔记目录：`notes/`
+- 单篇笔记：`notes/<note_id>.json`
+
+### 3. 加密方案
+
+- 算法：AES-256-GCM
+- KDF：PBKDF2-SHA256（仓库级 salt）
+- 登录时输入“加密口令”
+- 口令仅存 `sessionStorage`（不上传 GitHub，不落磁盘）
+- 登录后立即验证口令：
+  - 无配置则初始化配置
+  - 有配置则用 `key_check` 校验口令是否正确
+
+### 4. 草稿与保存行为
+
+- 点击新建：仅创建本地草稿（`pending=true`）
+- 点击保存：加密后写入 GitHub 文件
+- 删除：删除远端文件并同步清理本地缓存
+
+## 钱包模式说明
+
+钱包模式与 GitHub 模式并行存在，适用于“本地编辑 + 手动上链备份”的场景。
+
+### 1. 登录与会话
+
+- 使用私钥登录（前端校验格式并派生地址）
+- 私钥仅保存在 `sessionStorage`（关闭应用后需重新输入）
+- 地址会保存到 `localStorage` 作为“上次钱包”提示
+
+### 2. 数据行为
+
+- 本地笔记存储在钱包地址作用域下（本地优先）
+- 新建/编辑后会标记 `pending=true`
+- 点击“上链”时批量上传 pending 笔记到合约
+- 可从链上同步笔记并与本地合并
+- 已上链笔记删除时，会先尝试链上删除再更新本地
+
+### 3. 钱包模式加密
+
+- 上链前对标题与正文进行加密
+- 密钥由钱包签名派生（确定性派生，跨设备可重复解密）
+- 退出钱包模式会清理内存中的加密密钥缓存
+
+### 4. 钱包模式界面能力
+
+- 余额显示（OKB）
+- 累计 Gas 显示
+- 待上链数量显示
+- 上链按钮 / 同步按钮 / 链上删除
+
+## 目录结构（核心）
+
+```text
+src-tauri/
+  src/
+    lib.rs                 # 托盘、窗口行为、GitHub 后端命令
+    main.rs
+  Cargo.toml
+
+src/
+  components/
+    Sidebar.tsx
+    NoteEditor.tsx
+    WalletSidebar.tsx
+  pages/
+    LoginPage.tsx
+    MainPage.tsx
+    WalletMainPage.tsx
+  lib/
+    githubAuth.ts          # GitHub OAuth 设备流
+    githubSession.ts       # GitHub 会话管理
+    github.ts              # GitHub 笔记读写
+    githubCrypto.ts        # 端到端加密
+    githubLocalStore.ts    # 远端缓存 + 本地草稿分层
+    hooks.ts               # 查询/创建/更新/删除逻辑
+    export.ts
+    wallet.ts
+    contract.ts
+```
+
+## 环境变量
+
+见 [SETUP.md](./SETUP.md) 完整步骤。最小必填：
+
+```env
+VITE_GITHUB_CLIENT_ID=your_github_oauth_app_client_id
+VITE_GITHUB_REPO_PREFIX=yunjian-notes
+VITE_CONTRACT_ADDRESS=0x...
+```
+
+## 常见问题
+
+### 1) 登录后提示口令错误
+
+说明仓库已有加密配置，你输入的口令与历史口令不一致。必须使用同一口令才能跨设备解密。
+
+### 2) GitHub 授权页没有打开
+
+当前版本已改为后端命令拉起系统默认浏览器。若系统拦截，请使用“重新打开授权页面”按钮。
+
+### 3) 列表与仓库数量看起来不一致
+
+列表 = 远端日志 + 本地草稿。带“草稿”标签的是尚未保存到仓库的本地项。
+
+## 开发命令
+
+```bash
+npm install
+npm run tauri dev
+npm run build
+```
+
+## 许可证
+
+仅用于学习与内部使用，按需扩展。
