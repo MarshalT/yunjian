@@ -122,7 +122,7 @@ export function NoteEditor({ note, theme }: NoteEditorProps) {
           value={content}
           onChange={handleContentChange}
           height="100%"
-          preview="live"
+          preview="edit"
           visibleDragbar={false}
         />
       </div>

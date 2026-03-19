@@ -94,7 +94,7 @@ export function WalletNoteEditor({ note, address, theme, onSaved }: WalletNoteEd
           value={content}
           onChange={val => { setContent(val ?? ''); saveLocal(title, val ?? '') }}
           height="100%"
-          preview="live"
+          preview="edit"
           visibleDragbar={false}
         />
       </div>
