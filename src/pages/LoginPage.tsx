@@ -3,6 +3,7 @@ import { Eye, EyeOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { invoke } from '@tauri-apps/api/core'
 import { startGithubDeviceFlowLogin } from '../lib/githubAuth'
+import { setGithubPassphrase } from '../lib/githubCrypto'
 import { GithubSession } from '../lib/githubSession'
 import {
   isValidPrivateKey, deriveAddress, normalizeKey,
@@ -69,6 +70,7 @@ function GithubForm({ onLogin }: { onLogin: (session: GithubSession) => void }) 
   const [loading, setLoading] = useState(false)
   const [userCode, setUserCode] = useState('')
   const [verifyUrl, setVerifyUrl] = useState('')
+  const [passphrase, setPassphrase] = useState('')
 
   const copyText = async (text: string) => {
     try {
@@ -89,6 +91,11 @@ function GithubForm({ onLogin }: { onLogin: (session: GithubSession) => void }) 
   }
 
   const handleLogin = async () => {
+    if (passphrase.trim().length < 8) {
+      toast.error('请先输入至少 8 位的加密口令')
+      return
+    }
+
     setLoading(true)
     setUserCode('')
     setVerifyUrl('')
@@ -101,6 +108,7 @@ function GithubForm({ onLogin }: { onLogin: (session: GithubSession) => void }) 
           toast.info(`请在 GitHub 页面输入授权码：${userCode}`)
         },
       })
+      setGithubPassphrase(passphrase.trim())
       toast.success(`登录成功，已初始化仓库：${session.repo}`)
       onLogin(session)
     } catch (err: unknown) {
@@ -113,8 +121,21 @@ function GithubForm({ onLogin }: { onLogin: (session: GithubSession) => void }) 
 
   return (
     <div className="space-y-4">
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+          加密口令 <span className="text-gray-400 font-normal">（至少 8 位，多设备需一致）</span>
+        </label>
+        <input
+          type="password"
+          value={passphrase}
+          onChange={(e) => setPassphrase(e.target.value)}
+          placeholder="输入用于仓库加密的口令"
+          className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+        />
+      </div>
+
       <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-        登录后会自动创建一个新的私有仓库用于保存笔记数据。
+        登录后会自动创建/复用仓库，并使用该口令进行端到端加密。
       </div>
 
       {userCode && (

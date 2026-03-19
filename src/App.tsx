@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
 import { loadTheme, saveTheme } from './lib/store'
+import { clearGithubPassphrase, getGithubPassphrase } from './lib/githubCrypto'
 import { clearGithubSession, GithubSession, loadGithubSession, saveGithubSession } from './lib/githubSession'
 import { loadWalletSession } from './lib/wallet'
 import { LoginPage } from './pages/LoginPage'
@@ -35,7 +36,13 @@ export default function App() {
     if (ws) {
       setWalletAuth(ws)
     } else {
-      setGithubAuth(loadGithubSession())
+      const session = loadGithubSession()
+      if (session && getGithubPassphrase()) {
+        setGithubAuth(session)
+      } else {
+        clearGithubSession()
+        setGithubAuth(null)
+      }
     }
     setLoading(false)
 
@@ -62,6 +69,7 @@ export default function App() {
 
   const handleGithubLogout = () => {
     clearGithubSession()
+    clearGithubPassphrase()
     queryClient.clear()
     setGithubAuth(null)
   }

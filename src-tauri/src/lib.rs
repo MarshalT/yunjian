@@ -94,6 +94,13 @@ struct RepoCreateResp {
     default_branch: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct RepoListResp {
+    name: String,
+    description: Option<String>,
+    default_branch: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 struct RepoCreateOut {
     login: String,
@@ -107,6 +114,45 @@ fn unix_suffix() -> String {
         .map(|d| d.as_secs())
         .unwrap_or(0);
     secs.to_string()
+}
+
+fn sanitize_repo_prefix(prefix: &str) -> String {
+    let lowered = prefix.trim().to_lowercase();
+    let mut out = String::new();
+    let mut prev_dash = false;
+    for ch in lowered.chars() {
+        let keep = ch.is_ascii_lowercase() || ch.is_ascii_digit();
+        if keep {
+            out.push(ch);
+            prev_dash = false;
+        } else if !prev_dash {
+            out.push('-');
+            prev_dash = true;
+        }
+    }
+    let trimmed = out.trim_matches('-').to_string();
+    if trimmed.is_empty() {
+        "yunjian-notes".to_string()
+    } else {
+        trimmed
+    }
+}
+
+fn canonical_repo_name(prefix: &str, login: &str) -> String {
+    let p = sanitize_repo_prefix(prefix);
+    let l = login.trim().to_lowercase();
+    let mut name = format!("{}-{}", p, l);
+    if name.len() > 96 {
+        name.truncate(96);
+        while name.ends_with('-') {
+            name.pop();
+        }
+    }
+    if name.is_empty() {
+        format!("yunjian-notes-{}", unix_suffix())
+    } else {
+        name
+    }
 }
 
 fn gh_client() -> reqwest::Client {
@@ -218,50 +264,100 @@ async fn github_create_repo_for_notes(access_token: String, repo_prefix: String)
         .await
         .map_err(|e| format!("解析 GitHub 用户信息失败: {e}"))?;
 
-    let base = format!("{}-{}", repo_prefix, unix_suffix());
-    let mut candidate = base.clone();
+    let canonical = canonical_repo_name(&repo_prefix, &user.login);
 
-    for i in 0..4 {
-        let payload = serde_json::json!({
-            "name": candidate,
-            "private": true,
-            "auto_init": true,
-            "description": "Yunjian notes storage repository"
-        });
+    // 1) 先尝试直接读取规范仓库名（多设备共享同一仓库）
+    let get_repo_url = format!("https://api.github.com/repos/{}/{}", user.login, canonical);
+    let repo_get_res = client
+        .get(&get_repo_url)
+        .header("Accept", "application/vnd.github+json")
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .header("User-Agent", "yunjian-desktop")
+        .send()
+        .await
+        .map_err(|e| format!("检查 GitHub 仓库失败: {e}"))?;
 
-        let repo_res = client
-            .post("https://api.github.com/user/repos")
-            .header("Accept", "application/vnd.github+json")
-            .header("Authorization", format!("Bearer {}", access_token))
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .header("User-Agent", "yunjian-desktop")
-            .json(&payload)
-            .send()
+    if repo_get_res.status().is_success() {
+        let repo = repo_get_res
+            .json::<RepoCreateResp>()
             .await
-            .map_err(|e| format!("创建 GitHub 仓库失败: {e}"))?;
+            .map_err(|e| format!("解析 GitHub 仓库响应失败: {e}"))?;
+        return Ok(RepoCreateOut {
+            login: user.login,
+            repo: repo.name,
+            branch: repo.default_branch.unwrap_or_else(|| "main".to_string()),
+        });
+    }
 
-        if repo_res.status().is_success() {
-            let repo = repo_res
-                .json::<RepoCreateResp>()
-                .await
-                .map_err(|e| format!("解析 GitHub 仓库响应失败: {e}"))?;
+    // 2) 兼容旧版：如果存在历史前缀仓库，优先复用最近一个，避免数据分叉
+    let list_res = client
+        .get("https://api.github.com/user/repos?per_page=100&type=owner&sort=pushed&direction=desc")
+        .header("Accept", "application/vnd.github+json")
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .header("User-Agent", "yunjian-desktop")
+        .send()
+        .await
+        .map_err(|e| format!("查询 GitHub 仓库列表失败: {e}"))?;
 
+    if list_res.status().is_success() {
+        let repos = list_res
+            .json::<Vec<RepoListResp>>()
+            .await
+            .map_err(|e| format!("解析 GitHub 仓库列表失败: {e}"))?;
+
+        let prefix_norm = sanitize_repo_prefix(&repo_prefix);
+        if let Some(found) = repos.into_iter().find(|r| {
+            let desc_ok = r
+                .description
+                .as_deref()
+                .map(|d| d.contains("Yunjian notes storage repository"))
+                .unwrap_or(false);
+            r.name == canonical || r.name.starts_with(&format!("{}-", prefix_norm)) && desc_ok
+        }) {
             return Ok(RepoCreateOut {
                 login: user.login,
-                repo: repo.name,
-                branch: repo.default_branch.unwrap_or_else(|| "main".to_string()),
+                repo: found.name,
+                branch: found.default_branch.unwrap_or_else(|| "main".to_string()),
             });
         }
+    }
 
+    // 3) 都没有时再创建规范仓库（只创建一次）
+    let payload = serde_json::json!({
+        "name": canonical,
+        "private": true,
+        "auto_init": true,
+        "description": "Yunjian notes storage repository"
+    });
+
+    let repo_res = client
+        .post("https://api.github.com/user/repos")
+        .header("Accept", "application/vnd.github+json")
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .header("User-Agent", "yunjian-desktop")
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("创建 GitHub 仓库失败: {e}"))?;
+
+    if !repo_res.status().is_success() {
         let text = repo_res.text().await.unwrap_or_default();
-        if text.contains("name already exists") && i < 3 {
-            candidate = format!("{}-{}", base, i + 1);
-            continue;
-        }
         return Err(format!("创建 GitHub 仓库失败: {}", text));
     }
 
-    Err("创建 GitHub 仓库失败：仓库名冲突过多".to_string())
+    let repo = repo_res
+        .json::<RepoCreateResp>()
+        .await
+        .map_err(|e| format!("解析 GitHub 仓库响应失败: {e}"))?;
+
+    Ok(RepoCreateOut {
+        login: user.login,
+        repo: repo.name,
+        branch: repo.default_branch.unwrap_or_else(|| "main".to_string()),
+    })
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

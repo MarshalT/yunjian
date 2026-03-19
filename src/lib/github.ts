@@ -1,5 +1,14 @@
 import { Note, SortField, SortOrder } from '../types'
 import { loadGithubSession } from './githubSession'
+import {
+  createRepoCryptoConfig,
+  decryptNote,
+  encryptNote,
+  EncryptedNotePayload,
+  RepoCryptoConfig,
+  requireGithubPassphrase,
+  unlockRepoCryptoKey,
+} from './githubCrypto'
 
 interface GithubConfig {
   owner: string
@@ -21,6 +30,7 @@ interface GithubFileResponse {
 }
 
 const NOTES_DIR = 'notes'
+const CONFIG_PATH = '.yunjian/config.json'
 
 function getGithubConfig(): GithubConfig {
   const session = loadGithubSession()
@@ -116,6 +126,55 @@ async function getNoteFileSha(path: string): Promise<string | null> {
   }
 }
 
+async function getRepoConfig(): Promise<{ config: RepoCryptoConfig; sha: string } | null> {
+  const cfg = getGithubConfig()
+  try {
+    const file = await githubRequest<GithubFileResponse>(`/contents/${CONFIG_PATH}?ref=${encodeURIComponent(cfg.branch)}`)
+    if (!file.content) throw new Error('加密配置文件内容为空')
+    const text = decodeBase64Utf8(file.content.replace(/\n/g, ''))
+    return {
+      config: JSON.parse(text) as RepoCryptoConfig,
+      sha: file.sha,
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (msg.includes('404')) return null
+    throw err
+  }
+}
+
+async function putRepoConfig(config: RepoCryptoConfig, sha?: string): Promise<void> {
+  const cfg = getGithubConfig()
+  const body = {
+    message: sha ? 'update encryption config' : 'init encryption config',
+    content: encodeBase64Utf8(JSON.stringify(config, null, 2)),
+    ...(sha ? { sha } : {}),
+    branch: cfg.branch,
+  }
+  await githubRequest(`/contents/${CONFIG_PATH}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
+}
+
+async function ensureRepoKeyForWrite(): Promise<CryptoKey> {
+  const passphrase = requireGithubPassphrase()
+  const existing = await getRepoConfig()
+  if (!existing) {
+    const created = await createRepoCryptoConfig(passphrase)
+    await putRepoConfig(created.config)
+    return created.key
+  }
+  return unlockRepoCryptoKey(passphrase, existing.config)
+}
+
+async function loadRepoKeyForRead(): Promise<CryptoKey | null> {
+  const existing = await getRepoConfig()
+  if (!existing) return null
+  const passphrase = requireGithubPassphrase()
+  return unlockRepoCryptoKey(passphrase, existing.config)
+}
+
 export async function listGithubNotes(sortField: SortField, sortOrder: SortOrder): Promise<Note[]> {
   const cfg = getGithubConfig()
   let files: GithubContentItem[] = []
@@ -129,13 +188,21 @@ export async function listGithubNotes(sortField: SortField, sortOrder: SortOrder
   }
 
   const noteFiles = files.filter((f) => f.type === 'file' && f.name.endsWith('.json'))
+  if (noteFiles.length === 0) return []
+
+  const key = await loadRepoKeyForRead()
+  if (!key) {
+    throw new Error('仓库缺少加密配置，无法读取数据')
+  }
+
   const notes: Note[] = []
 
   for (const f of noteFiles) {
     const file = await githubRequest<GithubFileResponse>(`/contents/${f.path}?ref=${encodeURIComponent(cfg.branch)}`)
     if (!file.content) continue
-    const parsed = JSON.parse(decodeBase64Utf8(file.content.replace(/\n/g, ''))) as Partial<Note>
-    notes.push(normalizeNote(parsed, cfg.owner))
+    const parsed = JSON.parse(decodeBase64Utf8(file.content.replace(/\n/g, ''))) as EncryptedNotePayload
+    const decrypted = await decryptNote(parsed, key)
+    notes.push(normalizeNote(decrypted, cfg.owner))
   }
 
   return sortNotes(notes, sortField, sortOrder)
@@ -157,6 +224,7 @@ export async function createGithubNote(input: { title: string; content: string }
 
 export async function saveGithubNote(input: { id: string; title: string; content: string }): Promise<Note> {
   const cfg = getGithubConfig()
+  const key = await ensureRepoKeyForWrite()
   const now = new Date().toISOString()
   const path = `${NOTES_DIR}/${input.id}.json`
   const sha = await getNoteFileSha(path)
@@ -180,10 +248,11 @@ export async function saveGithubNote(input: { id: string; title: string; content
     updated_at: now,
     pending: false,
   }
+  const encrypted = await encryptNote(note, key)
 
   const body = {
     message: `${sha ? 'update' : 'create'} note ${note.id}`,
-    content: encodeBase64Utf8(JSON.stringify(note, null, 2)),
+    content: encodeBase64Utf8(JSON.stringify(encrypted, null, 2)),
     ...(sha ? { sha } : {}),
     branch: cfg.branch,
   }
@@ -220,6 +289,8 @@ export async function deleteGithubNote(id: string): Promise<void> {
 
 export async function getGithubNoteById(id: string): Promise<Note> {
   const cfg = getGithubConfig()
+  const key = await loadRepoKeyForRead()
+  if (!key) throw new Error('仓库缺少加密配置，无法读取数据')
   const path = `${NOTES_DIR}/${id}.json`
   const file = await githubRequest<GithubFileResponse>(`/contents/${path}?ref=${encodeURIComponent(cfg.branch)}`)
 
@@ -227,6 +298,7 @@ export async function getGithubNoteById(id: string): Promise<Note> {
     throw new Error('读取笔记失败：文件内容为空')
   }
 
-  const parsed = JSON.parse(decodeBase64Utf8(file.content.replace(/\n/g, ''))) as Partial<Note>
-  return normalizeNote(parsed, cfg.owner)
+  const parsed = JSON.parse(decodeBase64Utf8(file.content.replace(/\n/g, ''))) as EncryptedNotePayload
+  const decrypted = await decryptNote(parsed, key)
+  return normalizeNote(decrypted, cfg.owner)
 }
