@@ -376,6 +376,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            {
+                let _ = app.set_dock_visibility(false);
+            }
+
             // ── 初始化共享状态 ──
             let last_hide: LastHideTime = Arc::new(Mutex::new(None));
             app.manage(last_hide.clone());
