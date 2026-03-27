@@ -174,6 +174,16 @@ npm run tauri dev
 npm run build
 ```
 
+## CLI 版本（GitHub-only）
+
+仓库内已新增独立子项目 `yunjian-cli/`，仅保留 GitHub 版本能力，不包含钱包模式。  
+CLI 主要用于：
+- 记录日志事件（`log:add`）
+- 记录发给 agent 的消息（`agent:send`）
+- 多端同步（`sync`）
+
+使用方式见 [yunjian-cli/README.md](./yunjian-cli/README.md)。
+
 ## 许可证
 
 仅用于学习与内部使用，按需扩展。
