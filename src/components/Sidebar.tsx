@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Search, Trash2, LogOut, ArrowUpDown } from 'lucide-react'
+import { Plus, Search, Trash2, LogOut, ArrowUpDown, RefreshCw } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { ask } from '@tauri-apps/plugin-dialog'
 import { toast } from 'sonner'
@@ -19,6 +19,8 @@ interface SidebarProps {
   onSortChange: (field: SortField) => void
   isLoading: boolean
   onLogout: () => void
+  onSync: () => void
+  isSyncing: boolean
 }
 
 /** 侧边栏：笔记列表、搜索、排序、新建、登出 */
@@ -33,6 +35,8 @@ export function Sidebar({
   onSortChange,
   isLoading,
   onLogout,
+  onSync,
+  isSyncing,
 }: SidebarProps) {
   const [search, setSearch] = useState('')
   const createNote = useCreateNote()
@@ -42,6 +46,16 @@ export function Sidebar({
   const handleNewNote = async () => {
     const note = await createNote.mutateAsync({ title: '新建笔记', content: '' })
     onNewNote(note.id)
+  }
+
+  /** 手动同步笔记 */
+  const handleSync = async () => {
+    try {
+      await onSync()
+      toast.success('同步成功')
+    } catch (err) {
+      toast.error(`同步失败: ${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 
   /** 删除笔记（带二次确认） */
@@ -96,6 +110,14 @@ export function Sidebar({
         <div className="flex items-center gap-0.5">
           <PinToggle />
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+          <button
+            onClick={handleSync}
+            disabled={isSyncing}
+            title="同步笔记"
+            className="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw size={16} className={isSyncing ? 'animate-spin' : ''} />
+          </button>
           <button
             onClick={handleNewNote}
             disabled={createNote.isPending}

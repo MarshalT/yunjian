@@ -17,7 +17,7 @@ export function MainPage({ theme, toggleTheme, onLogout }: MainPageProps) {
   const [sortField, setSortField] = useState<SortField>('updated_at')
   const createNote = useCreateNote()
 
-  const { data: notes = [], isLoading } = useNotes(sortField, 'desc')
+  const { data: notes = [], isLoading, refetch, isFetching } = useNotes(sortField, 'desc')
 
   // 笔记列表加载后，若还未选中则自动选中第一篇
   useEffect(() => {
@@ -59,6 +59,8 @@ export function MainPage({ theme, toggleTheme, onLogout }: MainPageProps) {
         onSortChange={setSortField}
         isLoading={isLoading}
         onLogout={onLogout}
+        onSync={refetch}
+        isSyncing={isFetching}
       />
 
       {/* 编辑区 */}
