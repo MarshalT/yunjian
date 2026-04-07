@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
 import { loadTheme, saveTheme } from './lib/store'
 import { clearGithubPassphrase, getGithubPassphrase } from './lib/githubCrypto'
-import { clearGithubSession, GithubSession, loadGithubSession, saveGithubSession } from './lib/githubSession'
+import { clearGithubSession, GithubSession, loadGithubSession, saveGithubSession, syncSessionToCli } from './lib/githubSession'
 import { loadWalletSession } from './lib/wallet'
 import { LoginPage } from './pages/LoginPage'
 import { MainPage } from './pages/MainPage'
@@ -64,6 +64,7 @@ export default function App() {
 
   const handleGithubLogin = (session: GithubSession) => {
     saveGithubSession(session)
+    syncSessionToCli(session)
     setGithubAuth(session)
   }
 

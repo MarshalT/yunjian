@@ -31,3 +31,17 @@ export function loadGithubSession(): GithubSession | null {
 export function clearGithubSession() {
   localStorage.removeItem(SESSION_KEY)
 }
+
+// 将 session 同步写入 CLI 配置目录，供 yunjian-cli 共享使用
+export async function syncSessionToCli(session: GithubSession): Promise<void> {
+  try {
+    const { writeTextFile, mkdir } = await import('@tauri-apps/plugin-fs')
+    const { homeDir } = await import('@tauri-apps/api/path')
+    const home = await homeDir()
+    const dir = `${home}/.yunjian-cli`
+    await mkdir(dir, { recursive: true })
+    await writeTextFile(`${dir}/auth.json`, JSON.stringify(session, null, 2))
+  } catch {
+    // 同步失败不影响主流程
+  }
+}
